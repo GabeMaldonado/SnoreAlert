@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View, SafeAreaView, NativeModules, Alert, ScrollView, Dimensions, AppState, TouchableOpacity, Switch } from 'react-native';
+import { StyleSheet, Text, View, SafeAreaView, NativeModules, Alert, ScrollView, Dimensions, AppState, TouchableOpacity, Switch, Modal } from 'react-native';
 import { useState, useEffect, useRef } from 'react';
 import { SnoreDetector } from './SnoreDetector';
 import * as Haptics from 'expo-haptics';
@@ -7,17 +7,19 @@ import { LineChart } from 'react-native-chart-kit';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import * as FileSystem from 'expo-file-system';
 import * as Notifications from 'expo-notifications';
-import * as Battery from 'expo-battery';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const { WatchConnectivityBridge, SleepSessionBridge, NotificationBridge } = NativeModules;
+const { SleepSessionBridge, NotificationBridge } = NativeModules;
 const LOG_FILE = FileSystem.documentDirectory + 'app_log.txt';
 const NOTIFICATION_COOLDOWN_MS = 10000; // 10 seconds between notifications
+const LAST_SESSION_KEY = '@snoreguard:last_session';
 
+// White noise machine baseline: -38 to -42 dB
+// Thresholds must be above that floor to avoid false triggers
 const SENSITIVITY_LEVELS = {
-  High: -50,
-  Medium: -45,
-  Low: -30
+  High: -32,    // ~6 dB above white noise floor - catches moderate snoring
+  Medium: -22,  // clearly audible snoring
+  Low: -15      // only loud snoring
 };
 
 // Configure notification handler
@@ -59,16 +61,23 @@ const calculateSnoreScore = (sessionData, threshold) => {
 export default function App() {
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [lastSnoreLevel, setLastSnoreLevel] = useState(null);
+  const [currentAudioLevel, setCurrentAudioLevel] = useState(null);
   const [sessionData, setSessionData] = useState([]);
   const [sessionStartTime, setSessionStartTime] = useState(null);
   const [sessionEndTime, setSessionEndTime] = useState(null);
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [sensitivity, setSensitivity] = useState('Medium');
+  const [snoreEventCount, setSnoreEventCount] = useState(0);
   const snoreDetectorRef = useRef(null);
   const lastDataPointTimeRef = useRef(0);
   const lastLogTimeRef = useRef(0);
   const lastNotificationTimeRef = useRef(0);
+  const snoreCountRef = useRef(0);
+  const logScrollViewRef = useRef(null);
   const appState = useRef(AppState.currentState);
+
+  const [showLogsModal, setShowLogsModal] = useState(false);
+  const [logContent, setLogContent] = useState('');
 
   // Notification settings state
   const [dailyReminderEnabled, setDailyReminderEnabled] = useState(true);
@@ -96,14 +105,34 @@ export default function App() {
         setReminderTime(savedReminderTime);
       }
 
+      // Load last session from persistent storage
+      try {
+        const savedSession = await AsyncStorage.getItem(LAST_SESSION_KEY);
+        if (savedSession) {
+          const { data, startTime, endTime, snoreCount } = JSON.parse(savedSession);
+          if (data && data.length > 0) {
+            setSessionData(data);
+            setSessionStartTime(new Date(startTime));
+            setSessionEndTime(new Date(endTime));
+            setSnoreEventCount(snoreCount || 0);
+            logEvent(`Loaded previous session from storage (${data.length} points)`);
+          }
+        }
+      } catch (e) {
+        logEvent(`Failed to load session from storage: ${e.message}`);
+      }
+
       // Mark initial load as complete (this state change will trigger the scheduling useEffect)
       setIsInitialLoadComplete(true);
     })();
 
     const setupDetector = () => {
       snoreDetectorRef.current = new SnoreDetector(
-        async (level) => {
-          logEvent(`CALLBACK TRIGGERED: Snore detected at level ${level.toFixed(1)} dB`);
+        async (level, mlConfidence) => {
+          const detectionType = mlConfidence !== undefined
+            ? `ML confidence=${(mlConfidence * 100).toFixed(1)}%`
+            : 'dB threshold';
+          logEvent(`SNORE detected [${detectionType}] level=${level.toFixed(1)} dB`);
           setLastSnoreLevel(level);
 
           const now = Date.now();
@@ -111,6 +140,9 @@ export default function App() {
           logEvent(`Time since last notification: ${timeSinceLastNotif}ms (cooldown: ${NOTIFICATION_COOLDOWN_MS}ms)`);
 
           if (now - lastNotificationTimeRef.current >= NOTIFICATION_COOLDOWN_MS) {
+            snoreCountRef.current += 1;
+            setSnoreEventCount(snoreCountRef.current);
+
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
 
             if (NotificationBridge) {
@@ -142,33 +174,24 @@ export default function App() {
               }
             }
 
-            if (WatchConnectivityBridge) {
-              try {
-                WatchConnectivityBridge.sendVibrateCommand();
-                logEvent(`Sent vibrate command to Watch (Level: ${level.toFixed(1)})`);
-              } catch (error) {
-                logEvent(`ERROR sending watch vibrate: ${error.message || error}`);
-                console.error('Watch vibrate error:', error);
-              }
-            } else {
-              logEvent('WARNING: WatchConnectivityBridge is not available');
-            }
-
             lastNotificationTimeRef.current = now;
           }
         },
         (level) => {
+          setCurrentAudioLevel(level);
           const now = Date.now();
-          if (now - lastLogTimeRef.current >= 10000) {
+          if (now - lastLogTimeRef.current >= 300000) { // every 5 minutes
             logEvent(`Audio Level: ${level.toFixed(1)} dB`);
             lastLogTimeRef.current = now;
           }
 
           if (now - lastDataPointTimeRef.current >= 5000) {
-            const newDataPoint = { time: new Date().toISOString(), level: level };
-            setSessionData(prev => [...prev, newDataPoint]);
-            if (SleepSessionBridge) {
-              SleepSessionBridge.logDataPoint(newDataPoint);
+            if (level > -100) {
+              const newDataPoint = { time: new Date().toISOString(), level: level };
+              setSessionData(prev => [...prev, newDataPoint]);
+              if (SleepSessionBridge) {
+                SleepSessionBridge.logDataPoint(newDataPoint);
+              }
             }
             lastDataPointTimeRef.current = now;
           }
@@ -195,11 +218,33 @@ export default function App() {
           const nativeData = await SleepSessionBridge.getNativeData();
           if (nativeData && nativeData.length > 0) {
             setSessionData(nativeData);
-            logEvent(`Synced ${nativeData.length} points from native storage`);
+
+            const sessionStart = new Date(nativeData[0].time);
+            const sessionEnd = new Date(nativeData[nativeData.length - 1].time);
+            const levels = nativeData.map(d => d.level);
+            const maxLevel = Math.max(...levels);
+            const minLevel = Math.min(...levels);
+            const snoreEvents = nativeData.filter(d => d.level > SENSITIVITY_LEVELS[sensitivity]);
+            const score = calculateSnoreScore(nativeData, SENSITIVITY_LEVELS[sensitivity]);
+
+            let logMessage = `━━━ SESSION RECOVERED ━━━\nStarted: ${sessionStart.toLocaleString()}\nEnded: ${sessionEnd.toLocaleString()}\nData points: ${nativeData.length}\nSensitivity: ${sensitivity} (${SENSITIVITY_LEVELS[sensitivity]} dB)\nAudio range: ${minLevel.toFixed(1)} to ${maxLevel.toFixed(1)} dB\n`;
+
+            if (snoreEvents.length > 0) {
+              snoreEvents.forEach(event => {
+                const eventTime = new Date(event.time).toLocaleTimeString();
+                const dB = Math.abs(event.level).toFixed(1);
+                logMessage += `🔊 Loud snoring (${dB} dB) at ${eventTime}\n`;
+              });
+            } else {
+              logMessage += `No events exceeded ${SENSITIVITY_LEVELS[sensitivity]} dB threshold\n`;
+            }
+
+            logMessage += `📊 ${snoreEvents.length} events detected. Score: ${score}/100`;
+            await logEvent(logMessage);
           }
           return nativeData || [];
         } catch (e) {
-          logEvent(`Failed to sync native data: ${e.message}`);
+          await logEvent(`Failed to sync native data: ${e.message}`);
         }
       }
       return [];
@@ -210,7 +255,8 @@ export default function App() {
       if (recoveredData.length > 0) {
         setSessionStartTime(new Date(recoveredData[0].time));
         setSessionEndTime(new Date(recoveredData[recoveredData.length - 1].time));
-        setShowAnalytics(true);
+        // Don't auto-show analytics - let user tap Last Session card
+        // setShowAnalytics(true);
       }
     };
 
@@ -253,13 +299,20 @@ export default function App() {
           }
         }
 
+        const startTime = new Date();
         setSessionData([]);
-        setSessionStartTime(new Date());
+        setSessionStartTime(startTime);
         setSessionEndTime(null);
         setShowAnalytics(false);
         lastDataPointTimeRef.current = 0;
         lastLogTimeRef.current = 0;
         lastNotificationTimeRef.current = 0;
+        snoreCountRef.current = 0;
+        setSnoreEventCount(0);
+
+        // Log session start with clear separator
+        const startLog = `\n${'='.repeat(50)}\n━━━ SLEEP SESSION STARTED ━━━\nTime: ${startTime.toLocaleString()}\nSensitivity: ${sensitivity} (${SENSITIVITY_LEVELS[sensitivity]} dB)`;
+        await logEvent(startLog);
 
         await activateKeepAwakeAsync();
         keepAwakeEnabled = true;
@@ -267,11 +320,6 @@ export default function App() {
         if (SleepSessionBridge) {
           SleepSessionBridge.clearNativeData();
           SleepSessionBridge.startSleepSession();
-        }
-
-        if (WatchConnectivityBridge?.startWatchSession) {
-          WatchConnectivityBridge.startWatchSession();
-          logEvent('Requested Watch session start');
         }
 
         await snoreDetectorRef.current.startMonitoring();
@@ -302,30 +350,67 @@ export default function App() {
           }
           SleepSessionBridge.stopSleepSession();
         }
-        if (WatchConnectivityBridge?.stopWatchSession) {
-          WatchConnectivityBridge.stopWatchSession();
-          logEvent('Requested Watch session stop');
-        }
         setIsMonitoring(false);
         setLastSnoreLevel(null);
+        setCurrentAudioLevel(null);
         const endTime = new Date();
         setSessionEndTime(endTime);
         setShowAnalytics(true);
 
-        // Schedule summary notification 1 hour after session ends
+        // Build complete log message
         const snoreEvents = finalData.filter(d => d.level > SENSITIVITY_LEVELS[sensitivity]);
         const snoreCount = snoreEvents.length;
+        const sessionScore = calculateSnoreScore(finalData, SENSITIVITY_LEVELS[sensitivity]);
+
+        let logMessage = `━━━ SLEEP SESSION ENDED ━━━\nTime: ${endTime.toLocaleString()}\nData points: ${finalData.length}\nSensitivity: ${sensitivity} (${SENSITIVITY_LEVELS[sensitivity]} dB)\n`;
+
+        if (finalData.length > 0) {
+          const levels = finalData.map(d => d.level);
+          const maxLevel = Math.max(...levels);
+          const minLevel = Math.min(...levels);
+          logMessage += `Audio range: ${minLevel.toFixed(1)} to ${maxLevel.toFixed(1)} dB\n`;
+        }
+
+        if (snoreCount > 0) {
+          snoreEvents.forEach(event => {
+            const eventTime = new Date(event.time).toLocaleTimeString();
+            const dB = Math.abs(event.level).toFixed(1);
+            logMessage += `🔊 Loud snoring (${dB} dB) at ${eventTime}\n`;
+          });
+        } else {
+          logMessage += `No events exceeded ${SENSITIVITY_LEVELS[sensitivity]} dB threshold\n`;
+        }
+
+        const mlDetectionCount = snoreCountRef.current;
+        logMessage += `📊 ${mlDetectionCount} ML detections. Score: ${sessionScore}/100\n${'='.repeat(50)}`;
+
+        await logEvent(logMessage);
+
         await Notifications.scheduleNotificationAsync({
           content: {
             title: 'SnoreGuard',
-            body: `Good morning! Last night: ${snoreCount} snore events detected. Tap to view your sleep report.`,
+            body: `Good morning! Last night: ${mlDetectionCount} snore events detected. Tap to view your sleep report.`,
             data: { type: 'summary' },
           },
           trigger: {
             seconds: 3600, // 1 hour from now
           },
         });
-        logEvent(`Scheduled summary notification for 1 hour (${snoreCount} events)`);
+
+        // Save session to AsyncStorage for persistence across app restarts
+        try {
+          const lastSession = {
+            data: finalData,
+            startTime: sessionStartTime?.toISOString(),
+            endTime: endTime.toISOString(),
+            savedAt: new Date().toISOString(),
+            snoreCount: snoreCountRef.current,
+          };
+          await AsyncStorage.setItem(LAST_SESSION_KEY, JSON.stringify(lastSession));
+          logEvent('Session saved to persistent storage');
+        } catch (e) {
+          logEvent(`Failed to save session to storage: ${e.message}`);
+        }
     } catch (error) {
         logEvent(`Error in stopMonitoring: ${error.message}`);
     } finally {
@@ -346,19 +431,21 @@ export default function App() {
     try {
       const fileInfo = await FileSystem.getInfoAsync(LOG_FILE);
       if (!fileInfo.exists) {
-        Alert.alert('App Logs', 'No logs available yet. Logs will appear after monitoring sessions.');
+        Alert.alert('App Logs', 'No logs available yet.');
         return;
       }
       const content = await FileSystem.readAsStringAsync(LOG_FILE);
       if (!content || content.trim().length === 0) {
-        Alert.alert('App Logs', 'No logs available yet. Logs will appear after monitoring sessions.');
+        Alert.alert('App Logs', 'No logs available yet.');
         return;
       }
-      // Show last 2000 characters to avoid display issues
-      const displayContent = content.length > 2000 ? '...\n' + content.slice(-2000) : content;
-      Alert.alert('App Logs', displayContent);
+      const MAX_LOG_CHARS = 30000;
+      const displayContent = content.length > MAX_LOG_CHARS
+        ? `[earlier logs omitted — showing last ${MAX_LOG_CHARS} chars]\n\n` + content.slice(-MAX_LOG_CHARS)
+        : content;
+      setLogContent(displayContent);
+      setShowLogsModal(true);
     } catch (e) {
-      console.error('Error reading logs:', e);
       Alert.alert('Error', `Failed to read logs: ${e.message}`);
     }
   };
@@ -366,8 +453,12 @@ export default function App() {
   const clearLogs = async () => {
     try {
       await FileSystem.deleteAsync(LOG_FILE, { idempotent: true });
-      Alert.alert('Success', 'Logs cleared');
-      logEvent('Logs cleared manually');
+      await AsyncStorage.removeItem(LAST_SESSION_KEY);
+      setSessionData([]);
+      setSessionStartTime(null);
+      setSessionEndTime(null);
+      Alert.alert('Success', 'Logs and session data cleared');
+      logEvent('Logs and session data cleared manually');
     } catch (e) {
       Alert.alert('Error', 'Failed to clear logs');
     }
@@ -375,7 +466,7 @@ export default function App() {
 
   // Notification helper functions
   const scheduleDailyReminder = async () => {
-    // Cancel only daily reminder notifications (not all notifications)
+    // Cancel any existing daily reminder
     const scheduledNotifications = await Notifications.getAllScheduledNotificationsAsync();
     for (const notification of scheduledNotifications) {
       if (notification.content.data?.type === 'daily-reminder') {
@@ -388,25 +479,28 @@ export default function App() {
       return;
     }
 
-    // Parse reminder time (format: "19:00")
+    // Compute exact seconds until next occurrence to avoid iOS firing immediately
+    // when the calendar trigger time has already passed today
     const [hours, minutes] = reminderTime.split(':').map(Number);
+    const now = new Date();
+    const next = new Date();
+    next.setHours(hours, minutes, 0, 0);
+    if (next <= now) {
+      next.setDate(next.getDate() + 1); // already passed today — push to tomorrow
+    }
+    const secondsUntilNext = Math.floor((next - now) / 1000);
 
-    // Schedule daily repeating notification using calendar trigger
-    // This will fire every day at the specified time, not immediately
     await Notifications.scheduleNotificationAsync({
       content: {
         title: 'SnoreGuard',
         body: `🌙 Guard your sleep tonight! Make sure your iPhone and Apple Watch are charged and ready.`,
         data: { type: 'daily-reminder' },
       },
-      trigger: {
-        hour: hours,
-        minute: minutes,
-        repeats: true,
-      },
+      trigger: { seconds: secondsUntilNext },
     });
 
-    logEvent(`Daily reminder scheduled for ${reminderTime}`);
+    const hoursUntil = (secondsUntilNext / 3600).toFixed(1);
+    logEvent(`Daily reminder scheduled for ${reminderTime} (in ${hoursUntil}h)`);
   };
 
   const toggleDailyReminder = async (value) => {
@@ -423,13 +517,12 @@ export default function App() {
     );
   };
 
-  // Schedule daily reminder when TIME changes or after initial load
-  // Don't reschedule when just toggling on/off - this prevents the notification banner from appearing
+  // Schedule daily reminder when time changes, on initial load, or when toggled on/off
   useEffect(() => {
     if (isInitialLoadComplete) {
       scheduleDailyReminder();
     }
-  }, [reminderTime, isInitialLoadComplete]);
+  }, [reminderTime, isInitialLoadComplete, dailyReminderEnabled]);
 
   // When toggling on/off, manually call cancel if disabled
   useEffect(() => {
@@ -447,22 +540,43 @@ export default function App() {
 
   // Analytics Screen
   if (showAnalytics) {
+    const validSessionData = sessionData.filter(d => d.level > -100);
     const maxPoints = 50;
-    let chartData = sessionData;
-    if (sessionData.length > maxPoints) {
-      const step = Math.ceil(sessionData.length / maxPoints);
-      chartData = sessionData.filter((_, index) => index % step === 0);
+    let chartData = validSessionData;
+    if (validSessionData.length > maxPoints) {
+      const step = Math.ceil(validSessionData.length / maxPoints);
+      chartData = validSessionData.filter((_, index) => index % step === 0);
     }
 
+    // Generate labels - show start, end, and every 10th point (but skip if too close to end)
+    const labels = chartData.map((d, i) => {
+      const isFirst = i === 0;
+      const isLast = i === chartData.length - 1;
+      const isTenth = i % 10 === 0;
+      const tooCloseToEnd = i >= chartData.length - 5; // Within last 5 points
+
+      if (isFirst) {
+        // Always show first label (session start)
+        return new Date(d.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      } else if (isLast && sessionEndTime) {
+        // Always show last label (session end)
+        return sessionEndTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      } else if (isTenth && !tooCloseToEnd) {
+        // Show every 10th point, but skip if too close to the end to avoid overlap
+        return new Date(d.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      }
+      return "";
+    });
+
     const data = {
-      labels: chartData.map((d, i) => (i % 10 === 0 ? new Date(d.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "")),
+      labels: labels,
       datasets: [{ data: chartData.length > 0 ? chartData.map(d => d.level) : [0] }]
     };
 
     const snoreScore = calculateSnoreScore(sessionData, SENSITIVITY_LEVELS[sensitivity]);
-    const snoreEvents = sessionData.filter(d => d.level > SENSITIVITY_LEVELS[sensitivity]).length;
-    const avgLevel = sessionData.length > 0
-      ? (sessionData.reduce((sum, d) => sum + Math.abs(d.level), 0) / sessionData.length).toFixed(1)
+    const snoreEvents = snoreEventCount;
+    const avgLevel = validSessionData.length > 0
+      ? (validSessionData.reduce((sum, d) => sum + d.level, 0) / validSessionData.length).toFixed(1)
       : 0;
 
     return (
@@ -540,6 +654,27 @@ export default function App() {
   // Home Screen
   return (
     <View style={styles.container}>
+      {/* Logs Modal */}
+      <Modal visible={showLogsModal} animationType="slide" onRequestClose={() => setShowLogsModal(false)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#1a1a2e' }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#333' }}>
+            <Text style={{ color: '#fff', fontSize: 18, fontWeight: 'bold' }}>App Logs</Text>
+            <TouchableOpacity onPress={() => setShowLogsModal(false)}>
+              <Text style={{ color: '#4a90e2', fontSize: 16 }}>Close</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView
+            ref={logScrollViewRef}
+            style={{ flex: 1, padding: 12 }}
+            contentContainerStyle={{ paddingBottom: 40 }}
+            onContentSizeChange={() => logScrollViewRef.current?.scrollToEnd({ animated: false })}
+          >
+            <Text style={{ color: '#ccc', fontSize: 11, fontFamily: 'Courier New', lineHeight: 18 }}>
+              {logContent}
+            </Text>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
       <SafeAreaView style={styles.safeArea}>
         <StatusBar style="light" />
         <ScrollView contentContainerStyle={styles.homeContent}>
@@ -558,10 +693,15 @@ export default function App() {
               </Text>
             </View>
 
-            {isMonitoring && lastSnoreLevel !== null && (
+            {isMonitoring && currentAudioLevel !== null && (
               <View style={styles.liveDataCard}>
                 <Text style={styles.liveDataLabel}>Current Level</Text>
-                <Text style={styles.liveDataValue}>{lastSnoreLevel.toFixed(1)} dB</Text>
+                <Text style={styles.liveDataValue}>{currentAudioLevel.toFixed(1)} dB</Text>
+                {lastSnoreLevel !== null && (
+                  <Text style={{ fontSize: 12, color: '#ef4444', marginTop: 4 }}>
+                    Last snore: {lastSnoreLevel.toFixed(1)} dB
+                  </Text>
+                )}
               </View>
             )}
 
@@ -583,9 +723,9 @@ export default function App() {
                   ))}
                 </View>
                 <Text style={styles.sensitivityHint}>
-                  {sensitivity === 'High' ? 'Most sensitive - detects quiet sounds' :
-                   sensitivity === 'Medium' ? 'Balanced - recommended for most users' :
-                   'Least sensitive - only loud snoring'}
+                  {sensitivity === 'High' ? 'Catches moderate snoring above white noise (-32 dB)' :
+                   sensitivity === 'Medium' ? 'Clearly audible snoring only (-22 dB)' :
+                   'Only loud snoring (-15 dB)'}
                 </Text>
               </View>
             )}
@@ -600,6 +740,57 @@ export default function App() {
               </Text>
             </TouchableOpacity>
           </View>
+
+          {/* Last Session Summary (if available) */}
+          {!isMonitoring && (
+            <TouchableOpacity
+              style={styles.lastSessionCard}
+              onPress={() => sessionData.length > 0 && setShowAnalytics(true)}
+              disabled={sessionData.length === 0}
+            >
+              <View style={styles.lastSessionHeader}>
+                <Text style={styles.lastSessionTitle}>📊 Last Session</Text>
+                <Text style={styles.lastSessionSubtitle}>
+                  {sessionData.length > 0 ? 'Tap to view details' : 'No recent session to display'}
+                </Text>
+              </View>
+              {sessionData.length > 0 ? (
+                <View style={styles.lastSessionStats}>
+                  <View style={styles.lastSessionStat}>
+                    <Text style={styles.lastSessionStatValue}>
+                      {snoreEventCount}
+                    </Text>
+                    <Text style={styles.lastSessionStatLabel}>Events</Text>
+                  </View>
+                  <View style={styles.lastSessionStat}>
+                    <Text style={styles.lastSessionStatValue}>
+                      {calculateSnoreScore(sessionData, SENSITIVITY_LEVELS[sensitivity])}
+                    </Text>
+                    <Text style={styles.lastSessionStatLabel}>Score</Text>
+                  </View>
+                  {sessionStartTime && sessionEndTime && (
+                    <View style={styles.lastSessionStat}>
+                      <Text style={styles.lastSessionStatValue}>
+                        {(() => {
+                          const diff = sessionEndTime - sessionStartTime;
+                          const hours = Math.floor(diff / 3600000);
+                          const minutes = Math.floor((diff % 3600000) / 60000);
+                          return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+                        })()}
+                      </Text>
+                      <Text style={styles.lastSessionStatLabel}>Duration</Text>
+                    </View>
+                  )}
+                </View>
+              ) : (
+                <View style={styles.lastSessionPlaceholder}>
+                  <Text style={styles.lastSessionPlaceholderText}>
+                    Start monitoring to record your first session
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          )}
 
           {/* Quick Actions */}
           <View style={styles.quickActions}>
@@ -809,6 +1000,57 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#ffffff',
+  },
+  lastSessionCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 5,
+  },
+  lastSessionHeader: {
+    marginBottom: 16,
+  },
+  lastSessionTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#1e3c72',
+    marginBottom: 4,
+  },
+  lastSessionSubtitle: {
+    fontSize: 13,
+    color: '#6b7280',
+    fontStyle: 'italic',
+  },
+  lastSessionStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+  },
+  lastSessionStat: {
+    alignItems: 'center',
+  },
+  lastSessionStatValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1e3c72',
+    marginBottom: 4,
+  },
+  lastSessionStatLabel: {
+    fontSize: 12,
+    color: '#6b7280',
+  },
+  lastSessionPlaceholder: {
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+  lastSessionPlaceholderText: {
+    fontSize: 14,
+    color: '#9ca3af',
+    fontStyle: 'italic',
   },
   // Analytics Screen Styles
   analyticsContent: {
