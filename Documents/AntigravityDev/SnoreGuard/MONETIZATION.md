@@ -42,7 +42,7 @@ This document outlines the payment and subscription options for SnoreGuard, incl
 
 #### Configure Subscription Product
 1. **Product Details**:
-   - **Product ID**: `com.antigravity.snoreguard.monthly`
+   - **Product ID**: `com.agenticdevlabs.snoreguard.monthly`
    - **Reference Name**: "SnoreGuard Monthly Premium"
    - **Subscription Duration**: 1 month
 
@@ -61,7 +61,7 @@ This document outlines the payment and subscription options for SnoreGuard, incl
 
 #### Optional: Add Annual Subscription
 1. Create second product:
-   - **Product ID**: `com.antigravity.snoreguard.annual`
+   - **Product ID**: `com.agenticdevlabs.snoreguard.annual`
    - **Duration**: 1 year
    - **Price**: $39.99
    - **Free Trial**: 3 days
@@ -90,8 +90,8 @@ import RNIap, {
 Add subscription constants:
 ```javascript
 const SUBSCRIPTION_SKUS = {
-  monthly: 'com.antigravity.snoreguard.monthly',
-  annual: 'com.antigravity.snoreguard.annual',
+  monthly: 'com.agenticdevlabs.snoreguard.monthly',
+  annual: 'com.agenticdevlabs.snoreguard.annual',
 };
 ```
 
@@ -310,7 +310,7 @@ const PaywallScreen = () => (
 
 #### App Store Connect Setup
 1. Create **Non-Consumable** In-App Purchase:
-   - **Product ID**: `com.antigravity.snoreguard.lifetime`
+   - **Product ID**: `com.agenticdevlabs.snoreguard.lifetime`
    - **Reference Name**: "SnoreGuard Lifetime"
    - **Price**: $19.99
 
@@ -363,11 +363,11 @@ const purchaseFullVersion = async () => {
   try {
     await RNIap.initConnection();
     const products = await RNIap.getProducts({
-      skus: ['com.antigravity.snoreguard.lifetime']
+      skus: ['com.agenticdevlabs.snoreguard.lifetime']
     });
 
     await RNIap.requestPurchase({
-      sku: 'com.antigravity.snoreguard.lifetime'
+      sku: 'com.agenticdevlabs.snoreguard.lifetime'
     });
 
     await AsyncStorage.setItem(PURCHASE_KEY, 'true');

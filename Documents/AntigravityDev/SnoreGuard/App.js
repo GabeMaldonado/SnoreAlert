@@ -8,19 +8,52 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import * as FileSystem from 'expo-file-system';
 import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  initConnection,
+  endConnection,
+  purchaseUpdatedListener,
+  purchaseErrorListener,
+  finishTransaction,
+  getAvailablePurchases,
+  fetchProducts,
+  requestPurchase,
+} from 'react-native-iap';
 
-const { SleepSessionBridge, NotificationBridge } = NativeModules;
+const { SleepSessionBridge, NotificationBridge, WatchConnectivityBridge } = NativeModules;
 const LOG_FILE = FileSystem.documentDirectory + 'app_log.txt';
 const NOTIFICATION_COOLDOWN_MS = 10000; // 10 seconds between notifications
 const LAST_SESSION_KEY = '@snoreguard:last_session';
 
+// In-memory log buffer — primary source for viewLogs. File write is best-effort backup.
+// This survives render cycles but is cleared on app restart (file covers cross-session reads).
+const inMemoryLogs = [];
+
 // White noise machine baseline: -38 to -42 dB
-// Thresholds must be above that floor to avoid false triggers
+// Room ambient without white noise: ~-55 dB
+// Snoring typically falls in -35 to -48 dB range (RMS)
 const SENSITIVITY_LEVELS = {
-  High: -32,    // ~6 dB above white noise floor - catches moderate snoring
-  Medium: -22,  // clearly audible snoring
-  Low: -15      // only loud snoring
+  High: -45,    // catches moderate/quiet snoring, well above -55 dB ambient
+  Medium: -35,  // clearly audible snoring
+  Low: -25      // only loud snoring
 };
+
+const SUBSCRIPTION_SKUS = {
+  monthly: 'com.agenticdevlabs.snoreguard.monthly',
+  annual:  'com.agenticdevlabs.snoreguard.annual',
+};
+
+// Gift codes — add/remove codes here and redeploy to update the list.
+// Each code grants GIFT_CODE_DURATION_DAYS days of full access.
+const GIFT_CODE_DURATION_DAYS = 30;
+const GIFT_CODE_KEY = '@snoreguard:gift_code';
+const GIFT_CODE_EXPIRES_KEY = '@snoreguard:gift_code_expires';
+const GIFT_CODES = [
+  'SNOREGUARD-PARTNER-2026',
+  'SNOREGUARD-PRESS-2026',
+  'SNOREGUARD-VIP-001',
+  'SNOREGUARD-VIP-002',
+  'SNOREGUARD-VIP-003',
+];
 
 // Configure notification handler
 Notifications.setNotificationHandler({
@@ -35,6 +68,7 @@ const logEvent = async (message) => {
   const timestamp = new Date().toLocaleString();
   const logEntry = `${timestamp}: ${message}\n`;
   console.log(logEntry);
+  inMemoryLogs.push(logEntry); // always available for viewLogs this session
   try {
     await FileSystem.writeAsStringAsync(LOG_FILE, logEntry, {
       encoding: FileSystem.EncodingType.UTF8,
@@ -45,14 +79,20 @@ const logEvent = async (message) => {
   }
 };
 
-const calculateSnoreScore = (sessionData, threshold) => {
+// mlEventCount: real-time ML detections (may exceed dB threshold count when ML catches
+// snoring at levels just below the raw dB threshold).
+const calculateSnoreScore = (sessionData, threshold, mlEventCount = 0) => {
   if (!sessionData || sessionData.length === 0) return 0;
 
-  const snoreEvents = sessionData.filter(d => d.level > threshold);
-  const avgIntensity = snoreEvents.length > 0
-    ? snoreEvents.reduce((sum, d) => sum + Math.abs(d.level), 0) / snoreEvents.length
-    : 0;
-  const snorePercentage = (snoreEvents.length / sessionData.length) * 100;
+  const dbSnoreEvents = sessionData.filter(d => d.level > threshold);
+  // Use whichever count is higher so the score reflects all detected snoring.
+  const effectiveEventCount = Math.max(dbSnoreEvents.length, mlEventCount);
+  if (effectiveEventCount === 0) return 0;
+
+  const avgIntensity = dbSnoreEvents.length > 0
+    ? dbSnoreEvents.reduce((sum, d) => sum + Math.abs(d.level), 0) / dbSnoreEvents.length
+    : 28; // fallback: ML caught events near the threshold
+  const snorePercentage = (effectiveEventCount / sessionData.length) * 100;
 
   // Score from 0-100 (lower is better)
   return Math.min(100, Math.round((snorePercentage * 0.7) + (avgIntensity * 0.3)));
@@ -69,10 +109,12 @@ export default function App() {
   const [sensitivity, setSensitivity] = useState('Medium');
   const [snoreEventCount, setSnoreEventCount] = useState(0);
   const snoreDetectorRef = useRef(null);
+  const sensitivityRef = useRef('Medium');
   const lastDataPointTimeRef = useRef(0);
   const lastLogTimeRef = useRef(0);
   const lastNotificationTimeRef = useRef(0);
   const snoreCountRef = useRef(0);
+  const mlDetectionTimesRef = useRef([]);
   const logScrollViewRef = useRef(null);
   const appState = useRef(AppState.currentState);
 
@@ -84,10 +126,84 @@ export default function App() {
   const [reminderTime, setReminderTime] = useState('19:00'); // 7 PM default
   const [isInitialLoadComplete, setIsInitialLoadComplete] = useState(false);
 
+  // Subscription / paywall state
+  const [hasActiveSubscription, setHasActiveSubscription] = useState(false);
+  const [isLoadingSubscription, setIsLoadingSubscription] = useState(true);
+  const [showPaywall, setShowPaywall] = useState(false);
+  const [subscriptionProducts, setSubscriptionProducts] = useState([]);
+  const [isPurchasing, setIsPurchasing] = useState(false);
+  const [giftCodeActive, setGiftCodeActive] = useState(false);
+
   useEffect(() => {
     logEvent('App mounted');
 
-    // Request notification permissions
+    // Defined before the async IIFE so they can be called after sensitivity is loaded.
+    const syncDataFromNative = async () => {
+      if (SleepSessionBridge) {
+        try {
+          const nativeData = await SleepSessionBridge.getNativeData();
+          // Skip recovery log if a session is actively running — this fires on every
+          // foreground event and would log stale data from the previous session.
+          if (nativeData && nativeData.length > 0 && !snoreDetectorRef.current) {
+            setSessionData(nativeData);
+
+            const sessionStart = new Date(nativeData[0].time);
+            const sessionEnd = new Date(nativeData[nativeData.length - 1].time);
+            const levels = nativeData.map(d => d.level);
+            const maxLevel = Math.max(...levels);
+            const minLevel = Math.min(...levels);
+            const activeSensitivity = sensitivityRef.current;
+            const dbSnoreEvents = nativeData.filter(d => d.level > SENSITIVITY_LEVELS[activeSensitivity]);
+
+            // Try to read the ML event count saved in AsyncStorage (only present if
+            // stopMonitoring ran before iOS killed the app — otherwise 0).
+            let mlEventCount = 0;
+            try {
+              const savedRaw = await AsyncStorage.getItem(LAST_SESSION_KEY);
+              if (savedRaw) {
+                const saved = JSON.parse(savedRaw);
+                mlEventCount = saved.snoreCount || 0;
+              }
+            } catch (_) {}
+
+            const score = calculateSnoreScore(nativeData, SENSITIVITY_LEVELS[activeSensitivity], mlEventCount);
+
+            let logMessage = `━━━ SESSION RECOVERED ━━━\nStarted: ${sessionStart.toLocaleString()}\nEnded: ${sessionEnd.toLocaleString()}\nData points: ${nativeData.length}\nSensitivity: ${activeSensitivity} (${SENSITIVITY_LEVELS[activeSensitivity]} dB)\nAudio range: ${minLevel.toFixed(1)} to ${maxLevel.toFixed(1)} dB\n`;
+
+            if (dbSnoreEvents.length > 0) {
+              dbSnoreEvents.forEach(event => {
+                const eventTime = new Date(event.time).toLocaleTimeString();
+                const dB = Math.abs(event.level).toFixed(1);
+                logMessage += `🔊 Loud snoring (${dB} dB) at ${eventTime}\n`;
+              });
+            } else if (mlEventCount > 0) {
+              logMessage += `ML detected ${mlEventCount} snore events (audio peaks near ${SENSITIVITY_LEVELS[activeSensitivity]} dB threshold)\n`;
+            } else {
+              logMessage += `No snore events detected\n`;
+            }
+
+            logMessage += `📊 ${mlEventCount} ML detections, ${dbSnoreEvents.length} threshold crossings. Score: ${score}/100`;
+            await logEvent(logMessage);
+          }
+          return nativeData || [];
+        } catch (e) {
+          await logEvent(`Failed to sync native data: ${e.message}`);
+        }
+      }
+      return [];
+    };
+
+    const checkRecoveredSession = async () => {
+      const recoveredData = await syncDataFromNative();
+      if (recoveredData.length > 0) {
+        setSessionStartTime(new Date(recoveredData[0].time));
+        setSessionEndTime(new Date(recoveredData[recoveredData.length - 1].time));
+      }
+    };
+
+    // Request notification permissions and load all persisted settings,
+    // then recover any native session — all in a single async sequence so
+    // sensitivity is guaranteed to be set before checkRecoveredSession runs.
     (async () => {
       const { status } = await Notifications.requestPermissionsAsync();
       if (status !== 'granted') {
@@ -103,6 +219,33 @@ export default function App() {
       const savedReminderTime = await AsyncStorage.getItem('reminderTime');
       if (savedReminderTime !== null) {
         setReminderTime(savedReminderTime);
+      }
+
+      // Load sensitivity FIRST — sensitivityRef.current must be correct before
+      // checkRecoveredSession runs below.
+      const savedSensitivity = await AsyncStorage.getItem('sensitivity');
+      if (savedSensitivity !== null && SENSITIVITY_LEVELS[savedSensitivity] !== undefined) {
+        sensitivityRef.current = savedSensitivity;
+        setSensitivity(savedSensitivity);
+      }
+
+      // Check for active gift code
+      try {
+        const savedCode = await AsyncStorage.getItem(GIFT_CODE_KEY);
+        const savedExpiry = await AsyncStorage.getItem(GIFT_CODE_EXPIRES_KEY);
+        if (savedCode && savedExpiry) {
+          const expiryDate = new Date(savedExpiry);
+          if (expiryDate > new Date()) {
+            setGiftCodeActive(true);
+            logEvent(`Gift code active: ${savedCode}, expires ${expiryDate.toLocaleDateString()}`);
+          } else {
+            logEvent('Gift code expired');
+            await AsyncStorage.removeItem(GIFT_CODE_KEY);
+            await AsyncStorage.removeItem(GIFT_CODE_EXPIRES_KEY);
+          }
+        }
+      } catch (e) {
+        logEvent(`Failed to load gift code: ${e.message}`);
       }
 
       // Load last session from persistent storage
@@ -121,6 +264,9 @@ export default function App() {
       } catch (e) {
         logEvent(`Failed to load session from storage: ${e.message}`);
       }
+
+      // Recover any in-progress native session — runs AFTER sensitivity is loaded.
+      await checkRecoveredSession();
 
       // Mark initial load as complete (this state change will trigger the scheduling useEffect)
       setIsInitialLoadComplete(true);
@@ -141,9 +287,19 @@ export default function App() {
 
           if (now - lastNotificationTimeRef.current >= NOTIFICATION_COOLDOWN_MS) {
             snoreCountRef.current += 1;
+            mlDetectionTimesRef.current.push(now);
             setSnoreEventCount(snoreCountRef.current);
 
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+
+            if (WatchConnectivityBridge) {
+              try {
+                WatchConnectivityBridge.sendVibrateCommand();
+                logEvent('Sent VIBRATE command to Watch');
+              } catch (error) {
+                logEvent(`ERROR sending Watch vibrate: ${error.message || error}`);
+              }
+            }
 
             if (NotificationBridge) {
               try {
@@ -197,7 +353,7 @@ export default function App() {
           }
         }
       );
-      snoreDetectorRef.current.SNORE_THRESHOLD = SENSITIVITY_LEVELS[sensitivity];
+      snoreDetectorRef.current.SNORE_THRESHOLD = SENSITIVITY_LEVELS[sensitivityRef.current];
     };
 
     setupDetector();
@@ -212,56 +368,6 @@ export default function App() {
 
     const subscription = AppState.addEventListener('change', handleAppStateChange);
 
-    const syncDataFromNative = async () => {
-      if (SleepSessionBridge) {
-        try {
-          const nativeData = await SleepSessionBridge.getNativeData();
-          if (nativeData && nativeData.length > 0) {
-            setSessionData(nativeData);
-
-            const sessionStart = new Date(nativeData[0].time);
-            const sessionEnd = new Date(nativeData[nativeData.length - 1].time);
-            const levels = nativeData.map(d => d.level);
-            const maxLevel = Math.max(...levels);
-            const minLevel = Math.min(...levels);
-            const snoreEvents = nativeData.filter(d => d.level > SENSITIVITY_LEVELS[sensitivity]);
-            const score = calculateSnoreScore(nativeData, SENSITIVITY_LEVELS[sensitivity]);
-
-            let logMessage = `━━━ SESSION RECOVERED ━━━\nStarted: ${sessionStart.toLocaleString()}\nEnded: ${sessionEnd.toLocaleString()}\nData points: ${nativeData.length}\nSensitivity: ${sensitivity} (${SENSITIVITY_LEVELS[sensitivity]} dB)\nAudio range: ${minLevel.toFixed(1)} to ${maxLevel.toFixed(1)} dB\n`;
-
-            if (snoreEvents.length > 0) {
-              snoreEvents.forEach(event => {
-                const eventTime = new Date(event.time).toLocaleTimeString();
-                const dB = Math.abs(event.level).toFixed(1);
-                logMessage += `🔊 Loud snoring (${dB} dB) at ${eventTime}\n`;
-              });
-            } else {
-              logMessage += `No events exceeded ${SENSITIVITY_LEVELS[sensitivity]} dB threshold\n`;
-            }
-
-            logMessage += `📊 ${snoreEvents.length} events detected. Score: ${score}/100`;
-            await logEvent(logMessage);
-          }
-          return nativeData || [];
-        } catch (e) {
-          await logEvent(`Failed to sync native data: ${e.message}`);
-        }
-      }
-      return [];
-    };
-
-    const checkRecoveredSession = async () => {
-      const recoveredData = await syncDataFromNative();
-      if (recoveredData.length > 0) {
-        setSessionStartTime(new Date(recoveredData[0].time));
-        setSessionEndTime(new Date(recoveredData[recoveredData.length - 1].time));
-        // Don't auto-show analytics - let user tap Last Session card
-        // setShowAnalytics(true);
-      }
-    };
-
-    checkRecoveredSession();
-
     return () => {
       logEvent('App unmounting');
       subscription.remove();
@@ -272,6 +378,8 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    sensitivityRef.current = sensitivity;
+    AsyncStorage.setItem('sensitivity', sensitivity);
     if (snoreDetectorRef.current) {
       snoreDetectorRef.current.SNORE_THRESHOLD = SENSITIVITY_LEVELS[sensitivity];
       logEvent(`Sensitivity updated to ${sensitivity} (${SENSITIVITY_LEVELS[sensitivity]} dB)`);
@@ -281,6 +389,13 @@ export default function App() {
   const startMonitoring = async () => {
     logEvent('startMonitoring called');
     if (!snoreDetectorRef.current) return;
+
+    // Subscription gate — pass if subscribed or gift code is active
+    if (!hasActiveSubscription && !giftCodeActive) {
+      if (isLoadingSubscription) return; // Still verifying — wait silently
+      setShowPaywall(true);
+      return;
+    }
 
     let keepAwakeEnabled = false;
     try {
@@ -308,6 +423,8 @@ export default function App() {
         lastLogTimeRef.current = 0;
         lastNotificationTimeRef.current = 0;
         snoreCountRef.current = 0;
+        mlDetectionTimesRef.current = [];
+        inMemoryLogs.length = 0; // start fresh — only current session visible in logs
         setSnoreEventCount(0);
 
         // Log session start with clear separator
@@ -360,7 +477,7 @@ export default function App() {
         // Build complete log message
         const snoreEvents = finalData.filter(d => d.level > SENSITIVITY_LEVELS[sensitivity]);
         const snoreCount = snoreEvents.length;
-        const sessionScore = calculateSnoreScore(finalData, SENSITIVITY_LEVELS[sensitivity]);
+        const sessionScore = calculateSnoreScore(finalData, SENSITIVITY_LEVELS[sensitivity], snoreCountRef.current);
 
         let logMessage = `━━━ SLEEP SESSION ENDED ━━━\nTime: ${endTime.toLocaleString()}\nData points: ${finalData.length}\nSensitivity: ${sensitivity} (${SENSITIVITY_LEVELS[sensitivity]} dB)\n`;
 
@@ -371,30 +488,37 @@ export default function App() {
           logMessage += `Audio range: ${minLevel.toFixed(1)} to ${maxLevel.toFixed(1)} dB\n`;
         }
 
+        const mlDetectionCount = snoreCountRef.current;
+        const mlTimes = mlDetectionTimesRef.current;
+
         if (snoreCount > 0) {
           snoreEvents.forEach(event => {
             const eventTime = new Date(event.time).toLocaleTimeString();
             const dB = Math.abs(event.level).toFixed(1);
             logMessage += `🔊 Loud snoring (${dB} dB) at ${eventTime}\n`;
           });
+        } else if (mlDetectionCount > 0) {
+          // dB threshold had no crossings, but ML fired — show individual ML event times
+          mlTimes.forEach((ts, i) => {
+            logMessage += `🤖 ML snore detected at ${new Date(ts).toLocaleTimeString()} (event ${i + 1})\n`;
+          });
         } else {
-          logMessage += `No events exceeded ${SENSITIVITY_LEVELS[sensitivity]} dB threshold\n`;
+          logMessage += `No snoring detected this session\n`;
         }
 
-        const mlDetectionCount = snoreCountRef.current;
         logMessage += `📊 ${mlDetectionCount} ML detections. Score: ${sessionScore}/100\n${'='.repeat(50)}`;
 
         await logEvent(logMessage);
 
         await Notifications.scheduleNotificationAsync({
           content: {
-            title: 'SnoreGuard',
-            body: `Good morning! Last night: ${mlDetectionCount} snore events detected. Tap to view your sleep report.`,
+            title: 'SnoreAlert — Session Complete',
+            body: mlDetectionCount > 0
+              ? `${mlDetectionCount} snore events detected. Tap to view your sleep report.`
+              : `No snoring detected. Great night! Tap to view your sleep report.`,
             data: { type: 'summary' },
           },
-          trigger: {
-            seconds: 3600, // 1 hour from now
-          },
+          trigger: null, // immediate
         });
 
         // Save session to AsyncStorage for persistence across app restarts
@@ -408,6 +532,12 @@ export default function App() {
           };
           await AsyncStorage.setItem(LAST_SESSION_KEY, JSON.stringify(lastSession));
           logEvent('Session saved to persistent storage');
+          // Clear the native disk file — session is now safely in AsyncStorage.
+          // If we don't clear it, the next launch will trigger a false "SESSION RECOVERED"
+          // log that shows 0 dB-threshold events and ignores the ML event count.
+          if (SleepSessionBridge) {
+            SleepSessionBridge.clearNativeData();
+          }
         } catch (e) {
           logEvent(`Failed to save session to storage: ${e.message}`);
         }
@@ -429,17 +559,26 @@ export default function App() {
 
   const viewLogs = async () => {
     try {
-      const fileInfo = await FileSystem.getInfoAsync(LOG_FILE);
-      if (!fileInfo.exists) {
-        Alert.alert('App Logs', 'No logs available yet.');
-        return;
+      const MAX_LOG_CHARS = 30000;
+      let content = '';
+
+      // Primary: in-memory buffer — always up-to-date for the current app session.
+      // File writes can silently fail when the JS thread is suspended (phone locked).
+      if (inMemoryLogs.length > 0) {
+        content = inMemoryLogs.join('');
+      } else {
+        // Fallback: file — for logs from a previous app session (after app restart)
+        const fileInfo = await FileSystem.getInfoAsync(LOG_FILE);
+        if (fileInfo.exists) {
+          content = await FileSystem.readAsStringAsync(LOG_FILE);
+        }
       }
-      const content = await FileSystem.readAsStringAsync(LOG_FILE);
+
       if (!content || content.trim().length === 0) {
         Alert.alert('App Logs', 'No logs available yet.');
         return;
       }
-      const MAX_LOG_CHARS = 30000;
+
       const displayContent = content.length > MAX_LOG_CHARS
         ? `[earlier logs omitted — showing last ${MAX_LOG_CHARS} chars]\n\n` + content.slice(-MAX_LOG_CHARS)
         : content;
@@ -454,6 +593,9 @@ export default function App() {
     try {
       await FileSystem.deleteAsync(LOG_FILE, { idempotent: true });
       await AsyncStorage.removeItem(LAST_SESSION_KEY);
+      await AsyncStorage.removeItem(GIFT_CODE_KEY);
+      await AsyncStorage.removeItem(GIFT_CODE_EXPIRES_KEY);
+      setGiftCodeActive(false);
       setSessionData([]);
       setSessionStartTime(null);
       setSessionEndTime(null);
@@ -466,12 +608,11 @@ export default function App() {
 
   // Notification helper functions
   const scheduleDailyReminder = async () => {
-    // Cancel any existing daily reminder
-    const scheduledNotifications = await Notifications.getAllScheduledNotificationsAsync();
-    for (const notification of scheduledNotifications) {
-      if (notification.content.data?.type === 'daily-reminder') {
-        await Notifications.cancelScheduledNotificationAsync(notification.identifier);
-      }
+    const NotificationBridge = NativeModules.NotificationBridge;
+
+    // Cancel any existing reminder via native bridge (uses fixed identifier)
+    if (NotificationBridge && NotificationBridge.cancelDailyReminder) {
+      NotificationBridge.cancelDailyReminder();
     }
 
     if (!dailyReminderEnabled) {
@@ -479,28 +620,28 @@ export default function App() {
       return;
     }
 
-    // Compute exact seconds until next occurrence to avoid iOS firing immediately
-    // when the calendar trigger time has already passed today
     const [hours, minutes] = reminderTime.split(':').map(Number);
-    const now = new Date();
-    const next = new Date();
-    next.setHours(hours, minutes, 0, 0);
-    if (next <= now) {
-      next.setDate(next.getDate() + 1); // already passed today — push to tomorrow
+
+    if (NotificationBridge && NotificationBridge.scheduleDailyReminderAt) {
+      // Native UNCalendarNotificationTrigger — reliable on iOS 18
+      NotificationBridge.scheduleDailyReminderAt(hours, minutes);
+      logEvent(`Daily reminder scheduled natively — repeats every day at ${reminderTime}`);
+    } else {
+      // Fallback: Expo scheduler (simulator / dev builds without native module)
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: 'SnoreAlert',
+          body: `🌙 Time to track your sleep tonight! Make sure your iPhone is charged and ready.`,
+          data: { type: 'daily-reminder' },
+        },
+        trigger: {
+          hour: hours,
+          minute: minutes,
+          repeats: true,
+        },
+      });
+      logEvent(`Daily reminder scheduled via Expo — repeats every day at ${reminderTime}`);
     }
-    const secondsUntilNext = Math.floor((next - now) / 1000);
-
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: 'SnoreGuard',
-        body: `🌙 Guard your sleep tonight! Make sure your iPhone and Apple Watch are charged and ready.`,
-        data: { type: 'daily-reminder' },
-      },
-      trigger: { seconds: secondsUntilNext },
-    });
-
-    const hoursUntil = (secondsUntilNext / 3600).toFixed(1);
-    logEvent(`Daily reminder scheduled for ${reminderTime} (in ${hoursUntil}h)`);
   };
 
   const toggleDailyReminder = async (value) => {
@@ -538,6 +679,149 @@ export default function App() {
     }
   }, [dailyReminderEnabled, isInitialLoadComplete]);
 
+  // ─── IAP Helpers ────────────────────────────────────────────────────────────
+
+  const checkSubscriptionStatus = async () => {
+    try {
+      const purchases = await getAvailablePurchases();
+      const active = purchases.find(
+        p => p.productId === SUBSCRIPTION_SKUS.monthly ||
+             p.productId === SUBSCRIPTION_SKUS.annual
+      );
+      setHasActiveSubscription(!!active);
+      if (active) {
+        logEvent(`Subscription active: ${active.productId}`);
+      }
+    } catch (err) {
+      logEvent(`Subscription check error: ${err.message}`);
+    } finally {
+      setIsLoadingSubscription(false);
+    }
+  };
+
+  const purchaseSubscription = async (sku) => {
+    setIsPurchasing(true);
+    try {
+      await requestPurchase({
+        request: { apple: { sku } },
+        type: 'subs',
+      });
+    } catch (err) {
+      if (err.code !== 'E_USER_CANCELLED') {
+        Alert.alert('Purchase Error', err.message || 'Something went wrong. Please try again.');
+      }
+      setIsPurchasing(false);
+    }
+  };
+
+  const restorePurchases = async () => {
+    setIsPurchasing(true);
+    try {
+      const purchases = await getAvailablePurchases();
+      const active = purchases.find(
+        p => p.productId === SUBSCRIPTION_SKUS.monthly ||
+             p.productId === SUBSCRIPTION_SKUS.annual
+      );
+      if (active) {
+        setHasActiveSubscription(true);
+        setShowPaywall(false);
+        Alert.alert('Restored', 'Your subscription has been restored.');
+        logEvent('Purchases restored successfully');
+      } else {
+        Alert.alert('No Subscription Found', 'No active subscription was found for this Apple ID.');
+      }
+    } catch (err) {
+      Alert.alert('Restore Error', err.message || 'Could not restore purchases.');
+    } finally {
+      setIsPurchasing(false);
+    }
+  };
+
+  // ─── Gift Code Helpers ───────────────────────────────────────────────────────
+
+  const redeemGiftCode = async (code) => {
+    const trimmed = code.trim().toUpperCase();
+    if (GIFT_CODES.includes(trimmed)) {
+      const expiry = new Date();
+      expiry.setDate(expiry.getDate() + GIFT_CODE_DURATION_DAYS);
+      await AsyncStorage.setItem(GIFT_CODE_KEY, trimmed);
+      await AsyncStorage.setItem(GIFT_CODE_EXPIRES_KEY, expiry.toISOString());
+      setGiftCodeActive(true);
+      setShowPaywall(false);
+      logEvent(`Gift code redeemed: ${trimmed}, expires ${expiry.toLocaleDateString()}`);
+      Alert.alert(
+        '🎁 Code Redeemed!',
+        `You have ${GIFT_CODE_DURATION_DAYS} days of full access to SnoreAlert. Enjoy!`
+      );
+    } else {
+      Alert.alert('Invalid Code', 'That code is not valid or has already been used. Please check and try again.');
+    }
+  };
+
+  const promptGiftCode = () => {
+    Alert.prompt(
+      'Enter Gift Code',
+      'Enter the code you received to unlock access.',
+      (code) => { if (code) redeemGiftCode(code); },
+      'plain-text',
+      '',
+      'default'
+    );
+  };
+
+  // IAP setup — init connection, load products, check subscription
+  useEffect(() => {
+    let purchaseUpdateSub;
+    let purchaseErrorSub;
+
+    const setupIAP = async () => {
+      try {
+        await initConnection();
+
+        purchaseUpdateSub = purchaseUpdatedListener(async (purchase) => {
+          try {
+            await finishTransaction({ purchase });
+            await checkSubscriptionStatus();
+            setShowPaywall(false);
+            logEvent('Purchase completed and verified');
+          } catch (err) {
+            logEvent(`finishTransaction error: ${err.message}`);
+          }
+        });
+
+        purchaseErrorSub = purchaseErrorListener((err) => {
+          logEvent(`Purchase error: ${err.code} ${err.message}`);
+          setIsPurchasing(false);
+        });
+
+        const products = await fetchProducts({
+          skus: Object.values(SUBSCRIPTION_SKUS),
+          type: 'subs',
+        });
+        // Sort annual first
+        const sorted = [...products].sort((a, b) => {
+          if (a.productId.includes('annual') && !b.productId.includes('annual')) return -1;
+          if (!a.productId.includes('annual') && b.productId.includes('annual')) return 1;
+          return 0;
+        });
+        setSubscriptionProducts(sorted);
+
+        await checkSubscriptionStatus();
+      } catch (err) {
+        logEvent(`IAP setup error: ${err.message}`);
+        setIsLoadingSubscription(false);
+      }
+    };
+
+    setupIAP();
+
+    return () => {
+      purchaseUpdateSub?.remove();
+      purchaseErrorSub?.remove();
+      endConnection();
+    };
+  }, []);
+
   // Analytics Screen
   if (showAnalytics) {
     const validSessionData = sessionData.filter(d => d.level > -100);
@@ -573,7 +857,7 @@ export default function App() {
       datasets: [{ data: chartData.length > 0 ? chartData.map(d => d.level) : [0] }]
     };
 
-    const snoreScore = calculateSnoreScore(sessionData, SENSITIVITY_LEVELS[sensitivity]);
+    const snoreScore = calculateSnoreScore(sessionData, SENSITIVITY_LEVELS[sensitivity], snoreEventCount);
     const snoreEvents = snoreEventCount;
     const avgLevel = validSessionData.length > 0
       ? (validSessionData.reduce((sum, d) => sum + d.level, 0) / validSessionData.length).toFixed(1)
@@ -597,7 +881,9 @@ export default function App() {
                 <Text style={styles.scoreMax}>/100</Text>
               </View>
               <Text style={styles.scoreDescription}>
-                {snoreScore < 30 ? '😴 Excellent sleep!' :
+                {snoreScore === 0 ? '😴 No snoring detected' :
+                 snoreScore < 10 ? '😴 Excellent sleep!' :
+                 snoreScore < 30 ? '😊 Light snoring' :
                  snoreScore < 60 ? '😐 Moderate snoring' :
                  '😮 Heavy snoring detected'}
               </Text>
@@ -654,6 +940,96 @@ export default function App() {
   // Home Screen
   return (
     <View style={styles.container}>
+      {/* Paywall Modal */}
+      <Modal visible={showPaywall} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setShowPaywall(false)}>
+        <View style={styles.paywallContainer}>
+          <SafeAreaView style={{ flex: 1 }}>
+            <ScrollView contentContainerStyle={styles.paywallContent} bounces={false}>
+              {/* Close button */}
+              <TouchableOpacity style={styles.paywallCloseButton} onPress={() => setShowPaywall(false)}>
+                <Text style={styles.paywallCloseText}>✕</Text>
+              </TouchableOpacity>
+
+              {/* Hero */}
+              <View style={styles.paywallHero}>
+                <Text style={styles.paywallLockIcon}>🔒</Text>
+                <Text style={styles.paywallTitle}>SnoreAlert Premium</Text>
+                <Text style={styles.paywallHeadline}>Your sleep data never{'\n'}leaves your phone.</Text>
+                <Text style={styles.paywallSubheadline}>
+                  All snore detection runs entirely on-device via Core ML.{'\n'}
+                  No cloud. No servers. No data sharing. Ever.
+                </Text>
+              </View>
+
+              {/* Feature list */}
+              <View style={styles.paywallFeatures}>
+                {[
+                  'On-device Core ML snore detection',
+                  'Unlimited sleep sessions',
+                  'Apple Watch haptic alerts',
+                  'Snore analytics & session history',
+                  'Daily reminders',
+                  'Your data stays with you — always',
+                ].map((feature) => (
+                  <View key={feature} style={styles.paywallFeatureRow}>
+                    <Text style={styles.paywallFeatureCheck}>✓</Text>
+                    <Text style={styles.paywallFeatureText}>{feature}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Pricing buttons */}
+              <View style={styles.paywallPricingSection}>
+                <Text style={styles.paywallTrialBadge}>3-DAY FREE TRIAL</Text>
+
+                {/* Annual — highlighted */}
+                <TouchableOpacity
+                  style={[styles.paywallPriceButton, styles.paywallPriceButtonAnnual]}
+                  onPress={() => purchaseSubscription(SUBSCRIPTION_SKUS.annual)}
+                  disabled={isPurchasing}
+                >
+                  <View style={styles.paywallBestValueBadge}>
+                    <Text style={styles.paywallBestValueText}>BEST VALUE</Text>
+                  </View>
+                  <Text style={styles.paywallPriceButtonLabel}>Annual</Text>
+                  <Text style={styles.paywallPriceButtonPrice}>
+                    {subscriptionProducts.find(p => p.productId.includes('annual'))?.localizedPrice ?? '$49.99'}/year
+                  </Text>
+                  <Text style={styles.paywallPriceButtonSub}>~$4.17/mo · Save 40%</Text>
+                </TouchableOpacity>
+
+                {/* Monthly */}
+                <TouchableOpacity
+                  style={styles.paywallPriceButton}
+                  onPress={() => purchaseSubscription(SUBSCRIPTION_SKUS.monthly)}
+                  disabled={isPurchasing}
+                >
+                  <Text style={styles.paywallPriceButtonLabel}>Monthly</Text>
+                  <Text style={styles.paywallPriceButtonPrice}>
+                    {subscriptionProducts.find(p => p.productId.includes('monthly'))?.localizedPrice ?? '$6.99'}/month
+                  </Text>
+                  <Text style={styles.paywallPriceButtonSub}>Billed monthly</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Restore & gift code */}
+              <TouchableOpacity style={styles.paywallRestoreButton} onPress={restorePurchases} disabled={isPurchasing}>
+                <Text style={styles.paywallRestoreText}>Restore Purchases</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.paywallGiftCodeButton} onPress={promptGiftCode} disabled={isPurchasing}>
+                <Text style={styles.paywallGiftCodeText}>🎁 Have a gift code?</Text>
+              </TouchableOpacity>
+
+              <Text style={styles.paywallLegal}>
+                Subscription auto-renews unless cancelled at least 24 hours before the end of the current period.
+                Manage or cancel in Settings → Subscriptions.
+              </Text>
+            </ScrollView>
+          </SafeAreaView>
+        </View>
+      </Modal>
+
       {/* Logs Modal */}
       <Modal visible={showLogsModal} animationType="slide" onRequestClose={() => setShowLogsModal(false)}>
         <SafeAreaView style={{ flex: 1, backgroundColor: '#1a1a2e' }}>
@@ -666,6 +1042,10 @@ export default function App() {
           <ScrollView
             ref={logScrollViewRef}
             style={{ flex: 1, padding: 12 }}
+            minimumZoomScale={1}
+            maximumZoomScale={4}
+            bouncesZoom={true}
+            pinchGestureEnabled={true}
             contentContainerStyle={{ paddingBottom: 40 }}
             onContentSizeChange={() => logScrollViewRef.current?.scrollToEnd({ animated: false })}
           >
@@ -680,8 +1060,9 @@ export default function App() {
         <ScrollView contentContainerStyle={styles.homeContent}>
           {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.logoText}>SnoreGuard</Text>
-            <Text style={styles.tagline}>Your Guardian for Safer Sleep</Text>
+            <Text style={styles.logoText}>SnoreAlert</Text>
+            <Text style={styles.tagline}>If you snore, we will alert you</Text>
+            <Text style={styles.taglineSub}>Your Partner for Better, Safer Sleep</Text>
           </View>
 
           {/* Status Card */}
@@ -764,7 +1145,7 @@ export default function App() {
                   </View>
                   <View style={styles.lastSessionStat}>
                     <Text style={styles.lastSessionStatValue}>
-                      {calculateSnoreScore(sessionData, SENSITIVITY_LEVELS[sensitivity])}
+                      {calculateSnoreScore(sessionData, SENSITIVITY_LEVELS[sensitivity], snoreEventCount)}
                     </Text>
                     <Text style={styles.lastSessionStatLabel}>Score</Text>
                   </View>
@@ -821,7 +1202,7 @@ export default function App() {
                 />
               </View>
               <Text style={styles.settingsFooter}>
-                📊 You'll also receive a sleep summary 1 hour after each session ends
+                📊 You'll receive a sleep summary immediately after each session ends
               </Text>
             </View>
           )}
@@ -849,7 +1230,7 @@ const styles = StyleSheet.create({
     marginBottom: 30,
   },
   logoText: {
-    fontSize: 42,
+    fontSize: 34,
     fontWeight: 'bold',
     color: '#ffffff',
     textShadowColor: 'rgba(0, 0, 0, 0.3)',
@@ -857,10 +1238,16 @@ const styles = StyleSheet.create({
     textShadowRadius: 4,
   },
   tagline: {
-    fontSize: 16,
+    fontSize: 13,
     color: '#e0e9ff',
-    marginTop: 8,
+    marginTop: 6,
     fontWeight: '500',
+  },
+  taglineSub: {
+    fontSize: 11,
+    color: '#b0c4de',
+    marginTop: 4,
+    fontWeight: '400',
   },
   mainCard: {
     backgroundColor: '#ffffff',
@@ -1228,5 +1615,160 @@ const styles = StyleSheet.create({
     color: '#6b7280',
     marginTop: 12,
     fontStyle: 'italic',
+  },
+
+  // ─── Paywall Styles ───────────────────────────────────────────────────────
+  paywallContainer: {
+    flex: 1,
+    backgroundColor: '#1a2a5e',
+  },
+  paywallContent: {
+    padding: 24,
+    paddingBottom: 48,
+  },
+  paywallCloseButton: {
+    alignSelf: 'flex-end',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  paywallCloseText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  paywallHero: {
+    alignItems: 'center',
+    marginBottom: 28,
+  },
+  paywallLockIcon: {
+    fontSize: 48,
+    marginBottom: 12,
+  },
+  paywallTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#ffffff',
+    marginBottom: 12,
+  },
+  paywallHeadline: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#e0e9ff',
+    textAlign: 'center',
+    lineHeight: 30,
+    marginBottom: 12,
+  },
+  paywallSubheadline: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.7)',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  paywallFeatures: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 28,
+    gap: 12,
+  },
+  paywallFeatureRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  paywallFeatureCheck: {
+    fontSize: 16,
+    color: '#34d399',
+    fontWeight: 'bold',
+    width: 20,
+  },
+  paywallFeatureText: {
+    fontSize: 15,
+    color: '#e0e9ff',
+    flex: 1,
+  },
+  paywallPricingSection: {
+    gap: 12,
+    marginBottom: 20,
+  },
+  paywallTrialBadge: {
+    textAlign: 'center',
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#34d399',
+    letterSpacing: 1,
+    marginBottom: 4,
+  },
+  paywallPriceButton: {
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 16,
+    padding: 18,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  paywallPriceButtonAnnual: {
+    backgroundColor: 'rgba(42,82,152,0.9)',
+    borderColor: '#4a90e2',
+    borderWidth: 2,
+  },
+  paywallBestValueBadge: {
+    backgroundColor: '#34d399',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    marginBottom: 8,
+  },
+  paywallBestValueText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#064e3b',
+    letterSpacing: 0.5,
+  },
+  paywallPriceButtonLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#ffffff',
+    marginBottom: 4,
+  },
+  paywallPriceButtonPrice: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#ffffff',
+    marginBottom: 2,
+  },
+  paywallPriceButtonSub: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.65)',
+  },
+  paywallRestoreButton: {
+    alignItems: 'center',
+    paddingVertical: 10,
+    marginBottom: 4,
+  },
+  paywallRestoreText: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.55)',
+    textDecorationLine: 'underline',
+  },
+  paywallGiftCodeButton: {
+    alignItems: 'center',
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  paywallGiftCodeText: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.65)',
+  },
+  paywallLegal: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.4)',
+    textAlign: 'center',
+    lineHeight: 16,
   },
 });

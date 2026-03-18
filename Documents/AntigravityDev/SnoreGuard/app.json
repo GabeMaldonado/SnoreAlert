@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "SnoreGuard",
+    "name": "SnoreAlert",
     "slug": "snoreguard",
     "scheme": "snoreguard",
     "version": "1.0.0",
@@ -17,7 +17,7 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.antigravity.snoreguard",
+      "bundleIdentifier": "com.agenticdevlabs.snoreguard",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "This app needs access to the microphone to detect snoring.",
         "UIBackgroundModes": [
@@ -30,7 +30,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.antigravity.snoreguard",
+      "package": "com.agenticdevlabs.snoreguard",
       "permissions": [
         "android.permission.RECORD_AUDIO"
       ]
@@ -42,7 +42,7 @@
       [
         "expo-av",
         {
-          "microphonePermission": "Allow SnoreGuard to access your microphone."
+          "microphonePermission": "Allow SnoreAlert to access your microphone."
         }
       ],
       [
