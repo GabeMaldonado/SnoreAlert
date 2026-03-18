@@ -20,17 +20,19 @@
 		8B00784E1C25AB9F1544C4CD /* SoundAnalysis.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7336ED04BEDB14063A632CBE /* SoundAnalysis.framework */; };
 		8D7D8AB3B1D215D9DEA9792D /* WatchConnectivityBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = D20163CB2AAD2AF01BC3663D /* WatchConnectivityBridge.m */; };
 		8E4BD52F92BB30E8DF1F3B57 /* NativeAudioRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 251B48633E45B443E864DA59 /* NativeAudioRecorder.swift */; };
-		96905EF65AED1B983A6B3ABC /* libPods-SnoreGuard.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 58EEBF8E8E6FB1BC6CAF49B5 /* libPods-SnoreGuard.a */; };
 		A45D380D366B9F5951B50FF9 /* SleepSessionBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = 6E80CF9D1961A4D65AAEB856 /* SleepSessionBridge.m */; };
 		A76226C2F9029BC6F879299A /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 70C1B28BD3A845B479230AC2 /* PrivacyInfo.xcprivacy */; };
 		B18059E884C0ABDD17F3DC3D /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAC715A2D49A985799AEE119 /* ExpoModulesProvider.swift */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
+		C7277CD65303911D33CA5490 /* libPods-SnoreGuard.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 0ACF6884D56C15701D519283 /* libPods-SnoreGuard.a */; };
 		C7E929E985FE9DD7FF5A22AB /* NotificationBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C6D28225A1C1984AD303F77 /* NotificationBridge.swift */; };
 		E1287D1A144AEAEA81FFC8C5 /* CoreML.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 835C25B8E7BA20FF9DAAC0E7 /* CoreML.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		093242BF39E98C7F5F1572DB /* Pods-SnoreGuard.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-SnoreGuard.debug.xcconfig"; path = "Target Support Files/Pods-SnoreGuard/Pods-SnoreGuard.debug.xcconfig"; sourceTree = "<group>"; };
 		0A89CB1E89B2512BB7154632 /* AppConfig.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppConfig.swift; sourceTree = "<group>"; };
+		0ACF6884D56C15701D519283 /* libPods-SnoreGuard.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-SnoreGuard.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		0DD47FB172B6C1CF826FCD5A /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS11.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		13B07F961A680F5B00A75B9A /* SnoreGuard.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SnoreGuard.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FAF1A68108700A75B9A /* AppDelegate.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = AppDelegate.h; path = SnoreGuard/AppDelegate.h; sourceTree = "<group>"; };
@@ -46,14 +48,11 @@
 		353BA6DB1D1CEE4A151B8BD9 /* NotificationBridge.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = SnoreGuard/NotificationBridge.m; sourceTree = "<group>"; };
 		4537B6B04F5AA7FCE7DA657F /* WatchConnectivityBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SnoreGuard/WatchConnectivityBridge.swift; sourceTree = "<group>"; };
 		53FE4D6BD92AE53F12792F69 /* WatchConnectivityManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchConnectivityManager.swift; sourceTree = "<group>"; };
-		58EEBF8E8E6FB1BC6CAF49B5 /* libPods-SnoreGuard.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-SnoreGuard.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		5FF199228A32387DD619D0B7 /* ExtendedRuntimeManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ExtendedRuntimeManager.swift; sourceTree = "<group>"; };
-		6C2E3173556A471DD304B334 /* Pods-SnoreGuard.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-SnoreGuard.debug.xcconfig"; path = "Target Support Files/Pods-SnoreGuard/Pods-SnoreGuard.debug.xcconfig"; sourceTree = "<group>"; };
 		6E80CF9D1961A4D65AAEB856 /* SleepSessionBridge.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = SnoreGuard/SleepSessionBridge.m; sourceTree = "<group>"; };
 		70C1B28BD3A845B479230AC2 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = SnoreGuard/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		7336ED04BEDB14063A632CBE /* SoundAnalysis.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SoundAnalysis.framework; path = System/Library/Frameworks/SoundAnalysis.framework; sourceTree = SDKROOT; };
 		7729D9B055EED1A1895C0EE6 /* NativeAudioRecorder.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = SnoreGuard/NativeAudioRecorder.m; sourceTree = "<group>"; };
-		7A4D352CD337FB3A3BF06240 /* Pods-SnoreGuard.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-SnoreGuard.release.xcconfig"; path = "Target Support Files/Pods-SnoreGuard/Pods-SnoreGuard.release.xcconfig"; sourceTree = "<group>"; };
 		7C6D28225A1C1984AD303F77 /* NotificationBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SnoreGuard/NotificationBridge.swift; sourceTree = "<group>"; };
 		825EEC0BAD374CEF0134E208 /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		835C25B8E7BA20FF9DAAC0E7 /* CoreML.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreML.framework; path = System/Library/Frameworks/CoreML.framework; sourceTree = SDKROOT; };
@@ -66,6 +65,7 @@
 		D20163CB2AAD2AF01BC3663D /* WatchConnectivityBridge.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = SnoreGuard/WatchConnectivityBridge.m; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F28A966F480145DB871FAA6A /* SnoreGuard-Bridging-Header.h */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = sourcecode.c.h; name = "SnoreGuard-Bridging-Header.h"; path = "SnoreGuard/SnoreGuard-Bridging-Header.h"; sourceTree = "<group>"; };
+		F36C259A948A5F56B38DB35D /* Pods-SnoreGuard.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-SnoreGuard.release.xcconfig"; path = "Target Support Files/Pods-SnoreGuard/Pods-SnoreGuard.release.xcconfig"; sourceTree = "<group>"; };
 		FAC715A2D49A985799AEE119 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-SnoreGuard/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -99,9 +99,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				96905EF65AED1B983A6B3ABC /* libPods-SnoreGuard.a in Frameworks */,
 				8B00784E1C25AB9F1544C4CD /* SoundAnalysis.framework in Frameworks */,
 				E1287D1A144AEAEA81FFC8C5 /* CoreML.framework in Frameworks */,
+				C7277CD65303911D33CA5490 /* libPods-SnoreGuard.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -145,10 +145,10 @@
 			isa = PBXGroup;
 			children = (
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
-				58EEBF8E8E6FB1BC6CAF49B5 /* libPods-SnoreGuard.a */,
 				393DF9D55911FCF2E1E0357D /* watchOS */,
 				7336ED04BEDB14063A632CBE /* SoundAnalysis.framework */,
 				835C25B8E7BA20FF9DAAC0E7 /* CoreML.framework */,
+				0ACF6884D56C15701D519283 /* libPods-SnoreGuard.a */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -229,8 +229,8 @@
 		D65327D7A22EEC0BE12398D9 /* Pods */ = {
 			isa = PBXGroup;
 			children = (
-				6C2E3173556A471DD304B334 /* Pods-SnoreGuard.debug.xcconfig */,
-				7A4D352CD337FB3A3BF06240 /* Pods-SnoreGuard.release.xcconfig */,
+				093242BF39E98C7F5F1572DB /* Pods-SnoreGuard.debug.xcconfig */,
+				F36C259A948A5F56B38DB35D /* Pods-SnoreGuard.release.xcconfig */,
 			);
 			path = Pods;
 			sourceTree = "<group>";
@@ -250,14 +250,14 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "SnoreGuard" */;
 			buildPhases = (
-				08A4A3CD28434E44B6B9DE2E /* [CP] Check Pods Manifest.lock */,
+				A48135BA45651FA524D310AE /* [CP] Check Pods Manifest.lock */,
 				15C21DD7C7BE7E97360F54C6 /* [Expo] Configure project */,
 				13B07F871A680F5B00A75B9A /* Sources */,
 				13B07F8C1A680F5B00A75B9A /* Frameworks */,
 				13B07F8E1A680F5B00A75B9A /* Resources */,
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
-				800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */,
-				B4936B39948A0D0FC2F83DA7 /* [CP] Embed Pods Frameworks */,
+				96ABA0A0D5E4015D0378E0E2 /* [CP] Embed Pods Frameworks */,
+				560714FD6CF4D1A18A51F316 /* [CP] Copy Pods Resources */,
 			);
 			buildRules = (
 			);
@@ -361,28 +361,6 @@
 			shellPath = /bin/sh;
 			shellScript = "if [[ -f \"$PODS_ROOT/../.xcode.env\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env\"\nfi\nif [[ -f \"$PODS_ROOT/../.xcode.env.local\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env.local\"\nfi\n\n# The project root by default is one level up from the ios directory\nexport PROJECT_ROOT=\"$PROJECT_DIR\"/..\n\nif [[ \"$CONFIGURATION\" = *Debug* ]]; then\n  export SKIP_BUNDLING=1\nfi\nif [[ -z \"$ENTRY_FILE\" ]]; then\n  # Set the entry JS file using the bundler's entry resolution.\n  export ENTRY_FILE=\"$(\"$NODE_BINARY\" -e \"require('expo/scripts/resolveAppEntry')\" \"$PROJECT_ROOT\" ios absolute | tail -n 1)\"\nfi\n\nif [[ -z \"$CLI_PATH\" ]]; then\n  # Use Expo CLI\n  export CLI_PATH=\"$(\"$NODE_BINARY\" --print \"require.resolve('@expo/cli', { paths: [require.resolve('expo/package.json')] })\")\"\nfi\nif [[ -z \"$BUNDLE_COMMAND\" ]]; then\n  # Default Expo CLI command for bundling\n  export BUNDLE_COMMAND=\"export:embed\"\nfi\n\n# Source .xcode.env.updates if it exists to allow\n# SKIP_BUNDLING to be unset if needed\nif [[ -f \"$PODS_ROOT/../.xcode.env.updates\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env.updates\"\nfi\n# Source local changes to allow overrides\n# if needed\nif [[ -f \"$PODS_ROOT/../.xcode.env.local\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env.local\"\nfi\n\n`\"$NODE_BINARY\" --print \"require('path').dirname(require.resolve('react-native/package.json')) + '/scripts/react-native-xcode.sh'\"`\n\n";
 		};
-		08A4A3CD28434E44B6B9DE2E /* [CP] Check Pods Manifest.lock */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
-				"${PODS_ROOT}/Manifest.lock",
-			);
-			name = "[CP] Check Pods Manifest.lock";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-				"$(DERIVED_FILE_DIR)/Pods-SnoreGuard-checkManifestLockResult.txt",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
-			showEnvVarsInLog = 0;
-		};
 		15C21DD7C7BE7E97360F54C6 /* [Expo] Configure project */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -402,7 +380,7 @@
 			shellPath = /bin/sh;
 			shellScript = "# This script configures Expo modules and generates the modules provider file.\nbash -l -c \"./Pods/Target\\ Support\\ Files/Pods-SnoreGuard/expo-configure-project.sh\"\n";
 		};
-		800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */ = {
+		560714FD6CF4D1A18A51F316 /* [CP] Copy Pods Resources */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -444,7 +422,7 @@
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-SnoreGuard/Pods-SnoreGuard-resources.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
-		B4936B39948A0D0FC2F83DA7 /* [CP] Embed Pods Frameworks */ = {
+		96ABA0A0D5E4015D0378E0E2 /* [CP] Embed Pods Frameworks */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -460,6 +438,28 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-SnoreGuard/Pods-SnoreGuard-frameworks.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+		A48135BA45651FA524D310AE /* [CP] Check Pods Manifest.lock */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
+				"${PODS_ROOT}/Manifest.lock",
+			);
+			name = "[CP] Check Pods Manifest.lock";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/Pods-SnoreGuard-checkManifestLockResult.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
 			showEnvVarsInLog = 0;
 		};
 /* End PBXShellScriptBuildPhase section */
@@ -496,7 +496,7 @@
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 6C2E3173556A471DD304B334 /* Pods-SnoreGuard.debug.xcconfig */;
+			baseConfigurationReference = 093242BF39E98C7F5F1572DB /* Pods-SnoreGuard.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
@@ -522,7 +522,7 @@
 					"-lc++",
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
-				PRODUCT_BUNDLE_IDENTIFIER = com.antigravity.snoreguard;
+				PRODUCT_BUNDLE_IDENTIFIER = com.agenticdevlabs.snoreguard;
 				PRODUCT_NAME = SnoreGuard;
 				SWIFT_OBJC_BRIDGING_HEADER = "SnoreGuard/SnoreGuard-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -534,7 +534,7 @@
 		};
 		13B07F951A680F5B00A75B9A /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 7A4D352CD337FB3A3BF06240 /* Pods-SnoreGuard.release.xcconfig */;
+			baseConfigurationReference = F36C259A948A5F56B38DB35D /* Pods-SnoreGuard.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
@@ -555,7 +555,7 @@
 					"-lc++",
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
-				PRODUCT_BUNDLE_IDENTIFIER = com.antigravity.snoreguard;
+				PRODUCT_BUNDLE_IDENTIFIER = com.agenticdevlabs.snoreguard;
 				PRODUCT_NAME = SnoreGuard;
 				SWIFT_OBJC_BRIDGING_HEADER = "SnoreGuard/SnoreGuard-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
@@ -711,7 +711,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "SnoreGuard Watch App Watch App/Info.plist";
 				INFOPLIST_KEY_WKApplication = "{\"WKWatchKitApp\": true}";
-				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.antigravity.snoreguard;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.agenticdevlabs.snoreguard;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -720,7 +720,7 @@
 				MARKETING_VERSION = 1.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.antigravity.snoreguard.watchkitapp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.agenticdevlabs.snoreguard.watchkitapp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
@@ -761,7 +761,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "SnoreGuard Watch App Watch App/Info.plist";
 				INFOPLIST_KEY_WKApplication = "{\"WKWatchKitApp\": true}";
-				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.antigravity.snoreguard;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.agenticdevlabs.snoreguard;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -769,7 +769,7 @@
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MARKETING_VERSION = 1.0;
 				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.antigravity.snoreguard.watchkitapp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.agenticdevlabs.snoreguard.watchkitapp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;

@@ -9,7 +9,7 @@ class NativeAudioRecorder: RCTEventEmitter {
   // MARK: - Properties
 
   private var audioEngine: AVAudioEngine?
-  private let logger = Logger(subsystem: "com.antigravity.snoreguard", category: "NativeAudioRecorder")
+  private let logger = Logger(subsystem: "com.agenticdevlabs.snoreguard", category: "NativeAudioRecorder")
 
   // Metering
   private var meteringTimer: DispatchSourceTimer?
@@ -21,7 +21,7 @@ class NativeAudioRecorder: RCTEventEmitter {
   private var analysisObserver: SnoreAnalysisObserver?
   private let analysisQueue = DispatchQueue(label: "com.snoreguard.analysis", qos: .background)
   private var useMLDetection = false
-  private let snoreConfidenceThreshold: Float = 0.85
+  private let snoreConfidenceThreshold: Float = 0.70
   // Minimum dB before we even bother running ML — prevents classifying silence/room noise as snoring
   // Overnight audio averages ~-55 dB, so threshold must be well below that to ensure ML runs
   private let mlMinimumPowerThreshold: Float = -65.0
@@ -200,10 +200,10 @@ class SnoreAnalysisObserver: NSObject, SNResultsObserving {
 
   private let threshold: Float
   private let onSnoreDetected: (Double) -> Void
-  private let logger = Logger(subsystem: "com.antigravity.snoreguard", category: "SnoreAnalysisObserver")
+  private let logger = Logger(subsystem: "com.agenticdevlabs.snoreguard", category: "SnoreAnalysisObserver")
   // Require this many consecutive snore windows before firing — filters out brief voice/sounds
-  // At overlapFactor=0.5 with 1s windows, each window is 0.5s apart, so 4 = ~2s sustained snoring
-  private let requiredConsecutiveCount: Int = 4
+  // At overlapFactor=0.5 with 1s windows, each window is 0.5s apart, so 2 = ~1s sustained snoring
+  private let requiredConsecutiveCount: Int = 2
   private var consecutiveCount: Int = 0
 
   init(threshold: Float, onSnoreDetected: @escaping (Double) -> Void) {

@@ -5,7 +5,7 @@ import os
 @objc(NotificationBridge)
 class NotificationBridge: NSObject {
 
-  private let logger = Logger(subsystem: "com.antigravity.snoreguard", category: "NotificationBridge")
+  private let logger = Logger(subsystem: "com.agenticdevlabs.snoreguard", category: "NotificationBridge")
 
   @objc
   func requestAuthorization(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
@@ -37,6 +37,39 @@ class NotificationBridge: NSObject {
         self.logger.info("Notification scheduled: \(title)")
       }
     }
+  }
+
+  @objc
+  func scheduleDailyReminderAt(_ hour: Int, minute: Int) {
+    let identifier = "snoreguard-daily-reminder"
+    // Remove any existing daily reminder first
+    UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [identifier])
+
+    let content = UNMutableNotificationContent()
+    content.title = "SnoreAlert"
+    content.body = "🌙 Time to track your sleep! Make sure your iPhone is charged and ready."
+    content.sound = .default
+
+    var dateComponents = DateComponents()
+    dateComponents.hour = hour
+    dateComponents.minute = minute
+
+    let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: true)
+    let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
+
+    UNUserNotificationCenter.current().add(request) { [weak self] error in
+      if let error = error {
+        self?.logger.error("Failed to schedule daily reminder: \(error.localizedDescription)")
+      } else {
+        self?.logger.info("Daily reminder scheduled for \(hour):\(String(format: "%02d", minute)) daily")
+      }
+    }
+  }
+
+  @objc
+  func cancelDailyReminder() {
+    UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["snoreguard-daily-reminder"])
+    logger.info("Daily reminder cancelled")
   }
 
   @objc
