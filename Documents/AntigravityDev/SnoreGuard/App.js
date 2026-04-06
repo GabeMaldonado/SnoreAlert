@@ -19,7 +19,7 @@ import {
   requestPurchase,
 } from 'react-native-iap';
 
-const { SleepSessionBridge, NotificationBridge, WatchConnectivityBridge } = NativeModules;
+const { SleepSessionBridge, NotificationBridge } = NativeModules;
 const LOG_FILE = FileSystem.documentDirectory + 'app_log.txt';
 const NOTIFICATION_COOLDOWN_MS = 10000; // 10 seconds between notifications
 const LAST_SESSION_KEY = '@snoreguard:last_session';
@@ -283,23 +283,18 @@ export default function App() {
 
           const now = Date.now();
           const timeSinceLastNotif = now - lastNotificationTimeRef.current;
+          const canNotify = now - lastNotificationTimeRef.current >= NOTIFICATION_COOLDOWN_MS;
           logEvent(`Time since last notification: ${timeSinceLastNotif}ms (cooldown: ${NOTIFICATION_COOLDOWN_MS}ms)`);
 
-          if (now - lastNotificationTimeRef.current >= NOTIFICATION_COOLDOWN_MS) {
-            snoreCountRef.current += 1;
-            mlDetectionTimesRef.current.push(now);
-            setSnoreEventCount(snoreCountRef.current);
+          // Count every sustained ML detection even when notifications are throttled,
+          // so analytics reflect actual detected events instead of alert frequency.
+          snoreCountRef.current += 1;
+          mlDetectionTimesRef.current.push(now);
+          setSnoreEventCount(snoreCountRef.current);
+
+          if (canNotify) {
 
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-
-            if (WatchConnectivityBridge) {
-              try {
-                WatchConnectivityBridge.sendVibrateCommand();
-                logEvent('Sent VIBRATE command to Watch');
-              } catch (error) {
-                logEvent(`ERROR sending Watch vibrate: ${error.message || error}`);
-              }
-            }
 
             if (NotificationBridge) {
               try {
@@ -331,6 +326,8 @@ export default function App() {
             }
 
             lastNotificationTimeRef.current = now;
+          } else {
+            logEvent('Notification suppressed by cooldown; ML event still counted');
           }
         },
         (level) => {

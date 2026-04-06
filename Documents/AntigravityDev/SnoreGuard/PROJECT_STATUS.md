@@ -1,6 +1,6 @@
 # SnoreGuard - Project Status & Context
-**Last Updated**: March 5, 2026
-**Status**: Pre-Launch — 3 persistent bugs blocking production quality
+**Last Updated**: April 6, 2026
+**Status**: Pre-Launch — detection tuning in progress, watch delivery simplified to mirrored phone notifications
 
 ---
 
@@ -19,11 +19,11 @@
 
 ## Project Overview
 
-**SnoreGuard** is an iOS app that detects snoring using Core ML and triggers haptic vibrations on Apple Watch to wake the user.
+**SnoreGuard** is an iOS app that detects snoring using Core ML and sends native iPhone notifications that may mirror to Apple Watch.
 
 ### Core Features
 - ✅ Real-time snore detection using ML (Core ML Sound Classifier)
-- ✅ Apple Watch haptic feedback (single pulse — 5-pulse NOT YET WORKING)
+- ✅ Apple Watch notification mirroring via iPhone local notifications
 - ✅ Sleep session analytics (score, events, audio graph)
 - ✅ Configurable sensitivity levels (High/Medium/Low) — persistent
 - ✅ Persistent session history (AsyncStorage + native disk)
@@ -36,7 +36,7 @@
 - **Native Modules**: Swift (iOS), Objective-C bridge
 - **ML**: Core ML Sound Classifier (custom-trained)
 - **Audio Processing**: AVFoundation, SoundAnalysis framework
-- **Watch**: WatchConnectivity framework + WKExtendedRuntimeSession
+- **Watch**: Notification mirroring from iPhone to Apple Watch
 - **Storage**: AsyncStorage (JS), native iOS file system (Swift)
 - **IAP**: react-native-iap v14.7.12
 
@@ -49,19 +49,19 @@
 1. iPhone microphone → AVAudioEngine
 2. Audio buffer → NativeAudioRecorder.swift
 3. ML Model (SnoreClassifier.mlmodel) → Snore confidence score
-4. Confidence > 0.85 for 4 consecutive windows → Trigger
-5. Trigger → iPhone notification (NotificationBridge) + Watch VIBRATE command (WatchConnectivityBridge)
-6. Watch receives VIBRATE via WCSession → HapticManager.playSnoreDetectedHaptics()
+4. Confidence threshold + sustained classification gate → Trigger
+5. Trigger → iPhone notification (NotificationBridge)
+6. watchOS may mirror that notification to Apple Watch with standard system haptics
 7. Session data points logged to SleepSessionBridge (in-memory + disk flush every 10 points)
 ```
 
-### Watch Communication Flow (Current)
+### Watch Delivery Flow (Current)
 ```
 iPhone App.js
-  → WatchConnectivityBridge.sendVibrateCommand()
-  → WCSession (3 delivery paths: updateApplicationContext, transferUserInfo, sendMessage)
-  → Watch WatchConnectivityManager.handleCommand("VIBRATE")
-  → HapticManager.playSnoreDetectedHaptics()  ← 5 pulses scheduled on main thread
+  → NotificationBridge.scheduleImmediateNotification()
+  → iOS local notification fires
+  → Apple Watch may mirror the notification
+  → Watch uses standard mirrored-notification haptic (single system pulse)
 ```
 
 ### Key Components
@@ -69,14 +69,7 @@ iPhone App.js
 **Native iOS (Swift)**:
 - `NativeAudioRecorder.swift`: Audio recording, ML inference, event detection
 - `SleepSessionBridge.swift`: Session data persistence (in-memory + disk flush)
-- `WatchConnectivityBridge.swift`: Watch communication (iPhone side)
 - `NotificationBridge.swift`: Local notification handling
-
-**Watch App (Swift)**:
-- `WatchConnectivityManager.swift`: Receives commands from iPhone, handles START/STOP/VIBRATE
-- `HapticManager.swift`: 5-pulse haptic pattern using DispatchQueue.main.asyncAfter
-- `ExtendedRuntimeManager.swift`: Keeps Watch app alive overnight via WKExtendedRuntimeSession
-- `AppConfig.swift`: `hapticPulseCount = 5`, `hapticPulseDuration = 0.3s`
 
 **React Native (JavaScript)**:
 - `App.js`: Main UI, session management, analytics, IAP, notifications
@@ -86,55 +79,45 @@ iPhone App.js
 
 ## Current Bugs (Blocking)
 
-### Bug 1: Watch Haptics — Still Only 1 Pulse (Not 5)
+### Bug 1: Mirrored Watch Notifications Only Give 1 Pulse
 
-**User report**: Notifications come through fine on the Watch (single tap) but never feels like 5 distinct rapid pulses.
+**User report**: Notifications come through fine on the Watch (single tap) but never feel like 5 distinct rapid pulses.
 
-**Root cause analysis**:
-Multiple fixes have been applied without resolving the issue:
+**Decision**:
+We are intentionally using iPhone local notifications and relying on Apple’s mirrored-notification behavior on Watch.
 
-1. **Attempt 1** (not done initially): `WatchConnectivityBridge.sendVibrateCommand()` was never called from App.js — FIXED.
-2. **Attempt 2**: `WatchConnectivityManager.shared` was not initialized on Watch app launch — FIXED in `SnoreGuardApp.init()`.
-3. **Attempt 3**: `HapticManager` was calling `WKInterfaceDevice.current().play()` from a background thread with `Thread.sleep` — FIXED to use `DispatchQueue.main.asyncAfter` with staggered offsets.
-4. **Attempt 4**: Watch app was suspended overnight. Added `START_SESSION`/`STOP_SESSION` command handlers in `WatchConnectivityManager` to start `ExtendedRuntimeManager` — FIXED in code but **untested overnight yet**.
-
-**Remaining uncertainty**:
-- `WKExtendedRuntimeSession` has a maximum duration (~10 minutes for "self care" sessions, or unlimited for workout sessions). The session type in `ExtendedRuntimeManager` uses the default type — may be expiring before morning.
-- The Watch app `ContentView` is a placeholder ("Hello, world!"). There is NO UI that starts the extended runtime session automatically — it only starts when iPhone sends `START_SESSION`, which requires WCSession to deliver the message when Watch app is first activated.
-- The user must have the Watch app OPEN (or at least launched once) to activate WCSession on the Watch side. If the Watch was never opened, WCSession is never activated and no commands are received.
-- The standard iOS notification IS mirroring to Watch and causing 1 vibration. This is what the user feels — the WatchConnectivity VIBRATE command may never be reaching the Watch app.
+**Current understanding**:
+- Mirrored notifications produce the standard watchOS haptic, which is effectively a single system pulse.
+- Achieving a reliable custom 5-pulse pattern would require a real Watch app lifecycle, watch installation, activation, and overnight runtime management.
+- That complexity is out of scope for the current product direction.
 
 **What to investigate next**:
-- Confirm whether Watch app has ever been opened by user
-- Check if ExtendedRuntimeSession is actually starting (check Watch app logs)
-- Consider using workout-type extended runtime session for unlimited duration
-- Consider whether notification mirroring is the ONLY viable path (always 1 vibration) and if Watch Notification Extension is needed for custom 5-pulse pattern
+- Do not spend more time on custom WatchConnectivity haptics for now.
+- Revisit a dedicated Watch app only if multi-pulse haptics become a launch-critical requirement.
 
 ---
 
-### Bug 2: Session Logs Show Wrong/No Events
+### Bug 2: Detection Can Miss or Under-Count Some Snore Events
 
-**User report**: App logs say "0 events detected" or no session data, while the analytics screen shows 14 snore events. Data doesn't match.
+**User report**: The app appears to miss some snoring events, and historical logging has sometimes under-counted events compared to what was actually detected.
 
 **Root cause analysis**:
 
-There are TWO separate event-counting systems that disagree:
-1. **ML detections** (`snoreCountRef.current`): Incremented in real-time every time the snore callback fires. This is what the analytics "Snore Events" card shows (14).
-2. **dB threshold crossings** (`sessionData.filter(d => d.level > threshold)`): Data points are sampled every 5 seconds. The ML classifier catches snoring at `-51.7 dB` but the sensitivity threshold (High = `-32 dB`) is set much louder. So ML detections fire but no 5-second sample happens to be above `-32 dB` at that exact moment.
+There are TWO different causes:
+1. **Detection gating may be too strict**: the native classifier only runs above a minimum power gate and only fires after passing a confidence threshold over sustained windows.
+2. **Notification cooldown was also limiting event counting**: ML detections inside the 10-second cooldown window were not being counted in analytics, which made detection look worse than it really was.
 
-**The mismatch**: The analytics shows 14 (ML count), the log shows 0 (dB count). Both are "correct" by their own definition but are contradictory to the user.
+**Recent fix applied April 6, 2026**:
+- ML detections are now counted even when user-facing notifications are suppressed by cooldown.
+- Native ML thresholds were loosened modestly to improve sensitivity to quieter snoring.
 
-**Secondary issue — false SESSION RECOVERED log**:
-After a session ends normally (`stopMonitoring`), `SleepSessionBridge.stopSleepSession()` flushes the final data to disk but does NOT clear the file. On next launch, `syncDataFromNative()` finds this data and logs "SESSION RECOVERED" with 0 dB events, ignoring the 14 ML events saved in AsyncStorage. This was FIXED to:
-- Call `SleepSessionBridge.clearNativeData()` after saving to AsyncStorage in `stopMonitoring`
-- Read ML count from AsyncStorage in `syncDataFromNative` and include it in the recovery log
-
-**Score inconsistency** (same root cause):
-`calculateSnoreScore` only used dB threshold count → score of 0/100 with 14 events → showed "😴 Excellent sleep!" despite real snoring. FIXED to use `Math.max(dbEvents, mlEvents)` so ML detections contribute to the score.
+**Remaining design tension**:
+- dB threshold samples and ML detections still measure different things.
+- A quiet but valid ML snore may still not appear as a high-dB sample in the 5-second graph data.
 
 **What to investigate next**:
-- The SESSION RECOVERED fix has not been validated overnight yet (fix deployed March 4, user tested same night but this fix only shows on the SUBSEQUENT launch)
-- The core design tension: dB threshold is calibrated for white noise floor avoidance (-32 dB) but ML detects snoring at -51 dB. The two systems measure different things. Consider: should sensitivity threshold be lowered, or should ML detections be logged as dB events in sessionData?
+- Validate overnight whether the new ML count behavior better matches perceived snoring frequency.
+- If the app still misses real events, consider one more round of ML threshold tuning before touching the UI sensitivity presets.
 
 ---
 
@@ -208,9 +191,10 @@ Multiple approaches have been tried:
 ## Completed Features
 
 ### ✅ Core Detection
-- ML-based snore detection (85% confidence threshold, 4 consecutive windows)
-- Minimum power threshold (-65 dB) to avoid classifying silence
+- ML-based snore detection (60% confidence threshold, 2 consecutive windows)
+- Minimum power threshold (-70 dB) to avoid classifying silence
 - dB threshold filtering (configurable via sensitivity)
+- ML detections are counted even when notification delivery is throttled by cooldown
 
 ### ✅ UI/UX
 - Home screen with monitoring controls
@@ -236,9 +220,9 @@ Multiple approaches have been tried:
 ### ML Model Parameters
 ```swift
 // NativeAudioRecorder.swift
-snoreConfidenceThreshold: 0.85          // ML must be 85% confident
-requiredConsecutiveCount: 4             // Sustained for ~2 seconds
-mlMinimumPowerThreshold: -65.0 dB       // Skip ML inference for silence
+snoreConfidenceThreshold: 0.60          // ML must be 60% confident
+requiredConsecutiveCount: 2             // Sustained for ~1 second
+mlMinimumPowerThreshold: -70.0 dB       // Skip ML inference for near-silence
 windowDuration: 1.0 second
 overlapFactor: 0.5                      // Windows 0.5s apart
 ```
@@ -297,17 +281,11 @@ SnoreGuard/
 │   │   ├── NativeAudioRecorder.swift   # ⭐ Core ML detection
 │   │   ├── NativeAudioRecorderBridge.m # React Native bridge
 │   │   ├── SleepSessionBridge.swift/m  # Session persistence (in-mem + disk)
-│   │   ├── WatchConnectivityBridge.swift/m  # Watch communication (iPhone side)
+│   │   ├── WatchConnectivityBridge.swift/m  # Legacy/stub watch bridge retained for build compatibility
 │   │   ├── NotificationBridge.swift/m  # Local notifications
 │   │   └── SnoreClassifier.mlmodel     # ML model
 │   │
-│   └── SnoreGuard Watch App Watch App/
-│       ├── SnoreGuardApp.swift         # Watch app entry (activates WCSession)
-│       ├── ContentView.swift           # Placeholder UI ("Hello, world!")
-│       ├── WatchConnectivityManager.swift  # Receives iPhone commands
-│       ├── HapticManager.swift         # 5-pulse haptic player (main thread)
-│       ├── ExtendedRuntimeManager.swift    # Keeps Watch alive overnight
-│       └── AppConfig.swift             # hapticPulseCount=5, pulseDuration=0.3
+│   └── [No Watch app source present in current checkout]
 │
 ├── MySoundClassifier.mlproj/           # Create ML project
 ├── training_data/                      # ML training audio
@@ -338,15 +316,16 @@ python3 deploy_model.py
 | Feb 23 | ~1 | Low | High | Very few events — ML threshold too tight |
 | Mar 3-4 | 14 (ML) | 0 (bug) | High | Score showed 0, logs showed 0, 1 Watch pulse |
 | Mar 4-5 | TBD | TBD | High | Same 3 issues reported — fixes unconfirmed |
+| Apr 6-7 | Pending | Pending | User choice | Release build installed; testing tuned detection + mirrored notification path |
 
 ---
 
 ## Next Steps (Priority Order)
 
-### Priority 1: Fix the 3 Blocking Bugs
+### Priority 1: Validate Current Detection + Reminder Behavior
 1. **Daily reminder**: Debug why `{ hour: 19, minute: 0, repeats: true }` isn't firing. Check scheduled notifications list, test shorter interval, consider native UNUserNotificationCenter instead of Expo.
-2. **Watch 5 pulses**: Confirm Watch app has been opened/launched at least once. Investigate ExtendedRuntimeSession type (may be time-limited). Consider if WatchConnectivity ever delivers during sleep.
-3. **Log/score consistency**: The score fix is deployed — validate next overnight whether 14 ML events now produce a non-zero score. The SESSION RECOVERED fix validates on the NEXT launch after that.
+2. **Detection accuracy**: Validate whether the April 6 ML threshold changes reduce missed snore events without introducing too many false positives.
+3. **Log/score consistency**: Confirm overnight analytics now reflect every sustained ML detection even when alert notifications are on cooldown.
 
 ### Priority 2: App Store Submission (Blocked on DUNS)
 - DUNS number pending → Apple Developer account enrollment → App Store Connect
@@ -364,7 +343,7 @@ python3 deploy_model.py
 
 1. **ML vs dB threshold**: ML detects snoring at -51.7 dB. Sensitivity thresholds start at -32 dB (High). These two systems will never agree unless thresholds are lowered or ML events are stored differently.
 
-2. **Watch background execution**: watchOS aggressively suspends apps. Extended runtime sessions help but have time limits and require the Watch app to be explicitly opened at least once. A user who never opens the Watch app will never get custom haptics — they'll only get the standard notification mirror (1 vibration).
+2. **Mirrored Watch behavior**: Apple Watch mirroring gives the app very little control over pulse count or delivery feel. If custom haptics ever become mandatory, that likely means reviving a real Watch app architecture.
 
 3. **Notification reliability**: iOS can delay, batch, or suppress notifications in Focus mode, Do Not Disturb, or Scheduled Summary. The app has no control over this at runtime.
 
@@ -420,11 +399,53 @@ python3 deploy_model.py
 - iOS notification delivery can still be suppressed by system policy/user settings.
 
 ### Suggested next handoff tasks
-1. Remove residual watch bridge file references from `project.pbxproj`, then delete temporary no-op bridge files cleanly.
+1. Decide whether to leave the legacy watch bridge stub in place or fully remove its Xcode references in `project.pbxproj`.
 2. Run one overnight validation pass for:
    - log persistence after end-session,
    - reminder delivery at scheduled time,
    - score/log consistency in end-session summary.
 3. Capture validation evidence in this file (timestamp + device/iOS version + result).
 
+---
 
+## 2026-04-06 — Detection tuning + Release install for overnight test
+
+### Current outcome
+- Release build installed successfully to connected physical iPhone.
+- User trusted the developer profile on-device and confirmed the app launches.
+- Overnight test is planned for tonight.
+
+### Changes applied
+
+#### 1) Product direction clarified
+- Active alert path is now iPhone native local notifications with optional Apple Watch mirroring.
+- Custom WatchConnectivity-driven 5-pulse haptics are no longer the active implementation target.
+- The single mirrored watch vibration is treated as current expected platform behavior.
+
+#### 2) Detection/event counting tuning
+- `App.js`
+  - Removed the active WatchConnectivity vibrate call from the snore-detection flow.
+  - ML detections now increment analytics even when the 10-second notification cooldown suppresses another alert.
+  - Goal: stop under-counting real snore detections simply because alerts are rate-limited.
+- `ios/SnoreGuard/NativeAudioRecorder.swift`
+  - Lowered `snoreConfidenceThreshold` from `0.70` to `0.60`.
+  - Lowered `mlMinimumPowerThreshold` from `-65.0` to `-70.0`.
+  - Goal: improve capture of quieter snoring before changing user-facing sensitivity presets.
+
+#### 3) Documentation/handoff updates
+- Updated architecture/status language to match the mirrored-notification approach.
+- Added `Codex_to_Claude.md` to summarize the latest implementation and deployment context for Claude.
+
+### Release build/install notes
+- Physical device used:
+  - `00008130-00023C313CA2001C`
+- Release app bundle produced at:
+  - `ios/build/Build/Products/Release-iphoneos/SnoreGuard.app`
+- Successful install command:
+  - `xcrun devicectl device install app --device 00008130-00023C313CA2001C ios/build/Build/Products/Release-iphoneos/SnoreGuard.app`
+- Launch via `devicectl` initially failed due to trust/profile security until the developer profile was trusted manually on the iPhone.
+
+### Validation target for tonight
+1. Does the app still miss real snoring events after the April 6 tuning?
+2. Do analytics counts feel closer to perceived snore frequency?
+3. Did the looser ML thresholds introduce noticeable false positives?
