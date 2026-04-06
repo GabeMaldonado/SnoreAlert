@@ -21,10 +21,10 @@ class NativeAudioRecorder: RCTEventEmitter {
   private var analysisObserver: SnoreAnalysisObserver?
   private let analysisQueue = DispatchQueue(label: "com.snoreguard.analysis", qos: .background)
   private var useMLDetection = false
-  private let snoreConfidenceThreshold: Float = 0.70
+  private let snoreConfidenceThreshold: Float = 0.60
   // Minimum dB before we even bother running ML — prevents classifying silence/room noise as snoring
   // Overnight audio averages ~-55 dB, so threshold must be well below that to ensure ML runs
-  private let mlMinimumPowerThreshold: Float = -65.0
+  private let mlMinimumPowerThreshold: Float = -70.0
   // Monotonically increasing frame position counter for SNAudioStreamAnalyzer
   private var currentFramePosition: AVAudioFramePosition = 0
 
