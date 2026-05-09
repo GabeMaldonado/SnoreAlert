@@ -3,9 +3,15 @@
 
 @interface RCT_EXTERN_MODULE(NativeAudioRecorder, RCTEventEmitter)
 
-RCT_EXTERN_METHOD(start:(RCTPromiseResolveBlock)resolve
+RCT_EXTERN_METHOD(start:(NSDictionary *)options
+                  resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(stop:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(setTrainingRecordingEnabled:(BOOL)enabled
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(getLastTrainingRecordingPath:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
 + (BOOL)requiresMainQueueSetup

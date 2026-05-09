@@ -1,56 +1,47 @@
 # Project Context & Handover
 
-**To**: Agent on Mac
-**From**: Agent on Windows
-**Date**: 2025-11-23
-**Project**: SnoreGuard (Silent Wake App)
+**Date**: 2026-05-09
+**Project**: SnoreGuard / SnoreAlert
+**Repo**: `https://github.com/GabeMaldonado/SnoreAlert.git`
 
-## 1. Project Overview
-The user wants to build an iOS app that detects snoring and triggers a **haptic vibration on the Apple Watch** to wake the user.
-- **Platform**: iOS (Primary) + WatchOS (Companion).
-- **Core Feature**: Real-time audio analysis on iPhone -> Signal Watch -> Watch Vibrates.
+## Current Product State
+SnoreGuard is a React Native/Expo iOS app with native Swift modules for audio analysis, Core ML snore detection, local notifications, session persistence, and Apple Watch companion support.
 
-## 2. Current State
-- **Windows Machine**: Lacked Node.js/Git.
-- **Files Created**:
-    - `package.json`: Standard Expo + `expo-av` + `expo-haptics`.
-    - `app.json`: Configured with microphone permissions and background audio modes.
-    - `App.js`: Basic UI scaffold (Start/Stop buttons).
-- **Missing**:
-    - `node_modules` (User needs to run `npm install` on Mac).
-    - `ios/` and `android/` folders (User needs to run `npx expo prebuild` on Mac).
+The current active direction is a real iPhone app plus native watchOS companion. The iPhone records/analyzes microphone audio, starts/stops watch sessions through `WatchConnectivityBridge`, and sends haptic alert commands to the watch when a snore event is detected.
 
-## 3. Architecture Decisions
-- **Framework**: React Native (Expo Managed Workflow with Prebuild).
-    - *Why*: Ease of UI dev, but allows native code for Watch connectivity.
-- **Watch Integration**:
-    - We cannot use Expo for the Watch app itself.
-    - We must create a **Native Swift Watch Target** in Xcode.
-    - **Communication**: Use `WCSession` (WatchConnectivity) to send "VIBRATE" command from iPhone to Watch.
-    - **Background**: Watch app needs a `HKWorkoutSession` or `WKExtendedRuntimeSession` to stay active and receive commands immediately.
+## Recent Critical Work
+- Rebuilt and integrated the Apple Watch companion into the iPhone app target.
+- Added real watchOS files under `ios/SnoreGuard Watch App Watch App/`.
+- Added WatchConnectivity handling, watch haptics, extended runtime support, and a minimal status UI.
+- Fixed Release signing/provisioning enough for successful iPhone Release install and watch target install.
+- Added opt-in Training Audio Capture so real sleep sessions can be saved locally as `.caf` files for future ML training.
+- Fixed a false-positive path where raw loud dB events could trigger alerts even while ML mode was active.
 
-## 4. Implementation Plan (Approved)
+## Key Files
+- `App.js`: main app UI, session lifecycle, settings, watch bridge calls, training capture toggle.
+- `SnoreDetector.js`: JS wrapper around native audio recorder and snore event routing.
+- `ios/SnoreGuard/NativeAudioRecorder.swift`: AVAudioEngine, SoundAnalysis/Core ML, training audio capture.
+- `ios/SnoreGuard/NativeAudioRecorder.m`: React Native bridge exports.
+- `ios/SnoreGuard/WatchConnectivityBridge.swift`: iPhone-side watch bridge.
+- `ios/SnoreGuard Watch App Watch App/`: native watchOS companion source.
+- `ios/SnoreGuard.xcodeproj/project.pbxproj`: target wiring for iPhone + Watch.
+- `MySoundClassifier.mlproj/`: Create ML sound classifier project.
+- `training_data/`: current local/generated training data corpus.
 
-### Phase 1: Setup (Done on Windows)
-- [x] Create `package.json`, `app.json`, `App.js`.
+## Known Current Issues / Risks
+- watchOS can still limit overnight/background runtime; validate with real overnight tests.
+- Watch direct install via `devicectl` can time out in CoreDevice. Xcode watch-target install succeeded.
+- Training Audio Capture is local-only. There is no export/upload workflow yet.
+- Root repo recently gained `.gitignore`; generated folders should stay out of git.
 
-### Phase 2: Core Logic (Next on Mac)
-- [ ] **Install Dependencies**: Run `npm install`.
-- [ ] **Prebuild**: Run `npx expo prebuild` to generate the native iOS project.
-- [ ] **Snore Detection**: Implement `SnoreDetector.js` using `expo-av` to analyze audio levels (decibels).
+## New Mac Setup Summary
+Install Xcode, Xcode Command Line Tools, Node/npm, CocoaPods, and Expo tooling. Then:
 
-### Phase 3: Native Watch Implementation (Mac Only)
-- [ ] **Open Xcode**: Open `ios/SnoreGuard.xcworkspace`.
-- [ ] **Add Watch Target**: File -> New -> Target -> Watch App.
-- [ ] **Bridge**: Create a Swift Native Module in the iOS app to expose `WCSession` to React Native.
-- [ ] **Watch Code**: Implement `InterfaceController` on Watch to listen for messages and play Haptic.
+```sh
+npm install
+cd ios
+pod install
+open SnoreGuard.xcworkspace
+```
 
-## 5. Next Steps for Agent
-1.  Ask user to run `npm install`.
-2.  Ask user to run `npx expo prebuild`.
-3.  Open the project in Xcode and guide the user to add the Watch App target.
-4.  Implement the Swift Bridge for WatchConnectivity.
-
-## 6. Key Files
-- `App.js`: Main UI.
-- `app.json`: Config.
+Use Xcode automatic signing with the Apple Developer team `TDSR3ULM7K` / Gabriel Maldonado. Build the `SnoreGuard` scheme for iPhone Release, and if needed build/install `SnoreGuard Watch App Watch App` directly to the paired watch.

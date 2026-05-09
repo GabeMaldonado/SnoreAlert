@@ -11,6 +11,13 @@ class NativeAudioRecorder: RCTEventEmitter {
   private var audioEngine: AVAudioEngine?
   private let logger = Logger(subsystem: "com.agenticdevlabs.snoreguard", category: "NativeAudioRecorder")
 
+  // Optional full-session capture for training data.
+  private let recordingQueue = DispatchQueue(label: "com.snoreguard.trainingRecording", qos: .utility)
+  private var isTrainingRecordingEnabled = false
+  private var trainingAudioFile: AVAudioFile?
+  private var currentTrainingRecordingURL: URL?
+  private var lastTrainingRecordingURL: URL?
+
   // Metering
   private var meteringTimer: DispatchSourceTimer?
   private let meteringQueue = DispatchQueue(label: "com.snoreguard.metering", qos: .background)
@@ -47,10 +54,14 @@ class NativeAudioRecorder: RCTEventEmitter {
   // MARK: - Start
 
   @objc
-  func start(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+  func start(_ options: NSDictionary?, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
     logger.info("🎤 START called")
 
     do {
+      if let saveTrainingRecording = options?["saveTrainingRecording"] as? Bool {
+        isTrainingRecordingEnabled = saveTrainingRecording
+      }
+
       let session = AVAudioSession.sharedInstance()
       try session.setCategory(.record, mode: .default, options: [.allowBluetooth])
       try session.setActive(true)
@@ -64,6 +75,7 @@ class NativeAudioRecorder: RCTEventEmitter {
 
       // Setup ML analyzer with the native input format
       setupMLAnalysis(format: inputFormat)
+      setupTrainingRecordingIfNeeded(format: inputFormat)
 
       // Install a tap on the input node — fires every ~100ms
       inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
@@ -95,13 +107,36 @@ class NativeAudioRecorder: RCTEventEmitter {
     analysisObserver = nil
     currentFramePosition = 0
     currentPower = -160.0
+    let recordingPath = currentTrainingRecordingURL?.path
+    recordingQueue.sync {
+      self.trainingAudioFile = nil
+    }
+    lastTrainingRecordingURL = currentTrainingRecordingURL
+    currentTrainingRecordingURL = nil
+    let trainingRecordingPath: Any = recordingPath ?? NSNull()
     logger.info("🛑 Stopped")
+    resolve([
+      "stopped": true,
+      "trainingRecordingPath": trainingRecordingPath
+    ])
+  }
+
+  @objc
+  func setTrainingRecordingEnabled(_ enabled: Bool, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+    isTrainingRecordingEnabled = enabled
     resolve(true)
+  }
+
+  @objc
+  func getLastTrainingRecordingPath(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+    resolve(lastTrainingRecordingURL?.path)
   }
 
   // MARK: - Audio Tap Processing
 
   private func processTapBuffer(_ buffer: AVAudioPCMBuffer) {
+    writeTrainingBufferIfNeeded(buffer)
+
     // Compute RMS power → dB for metering
     if let channelData = buffer.floatChannelData?[0] {
       let frameCount = Int(buffer.frameLength)
@@ -136,9 +171,11 @@ class NativeAudioRecorder: RCTEventEmitter {
     timer.schedule(deadline: .now(), repeating: .milliseconds(500))
     timer.setEventHandler { [weak self] in
       guard let self = self else { return }
+      let trainingRecordingPath: Any = self.currentTrainingRecordingURL?.path ?? NSNull()
       self.sendEvent(withName: "NativeAudioLevel", body: [
         "level": self.currentPower,
-        "mlActive": self.useMLDetection
+        "mlActive": self.useMLDetection,
+        "trainingRecordingPath": trainingRecordingPath
       ])
     }
     timer.resume()
@@ -179,6 +216,98 @@ class NativeAudioRecorder: RCTEventEmitter {
       logger.error("❌ ML setup failed: \(error.localizedDescription) — falling back to dB threshold")
       useMLDetection = false
     }
+  }
+
+  // MARK: - Training Recording
+
+  private func setupTrainingRecordingIfNeeded(format: AVAudioFormat) {
+    guard isTrainingRecordingEnabled else {
+      trainingAudioFile = nil
+      currentTrainingRecordingURL = nil
+      return
+    }
+
+    do {
+      let directory = try trainingRecordingsDirectory()
+      let formatter = DateFormatter()
+      formatter.dateFormat = "yyyyMMdd-HHmmss"
+      let filename = "snoreguard-training-\(formatter.string(from: Date())).caf"
+      let fileURL = directory.appendingPathComponent(filename)
+      let audioFile = try AVAudioFile(forWriting: fileURL, settings: format.settings)
+      recordingQueue.sync {
+        self.trainingAudioFile = audioFile
+      }
+      currentTrainingRecordingURL = fileURL
+      lastTrainingRecordingURL = fileURL
+      logger.info("🎙️ Training recording enabled: \(fileURL.path)")
+    } catch {
+      trainingAudioFile = nil
+      currentTrainingRecordingURL = nil
+      isTrainingRecordingEnabled = false
+      logger.error("Training recording setup failed: \(error.localizedDescription)")
+      sendEvent(withName: "NativeAudioError", body: [
+        "message": "Training recording setup failed: \(error.localizedDescription)"
+      ])
+    }
+  }
+
+  private func trainingRecordingsDirectory() throws -> URL {
+    let documents = try FileManager.default.url(
+      for: .documentDirectory,
+      in: .userDomainMask,
+      appropriateFor: nil,
+      create: true
+    )
+    let directory = documents.appendingPathComponent("SnoreGuardTrainingSessions", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    return directory
+  }
+
+  private func writeTrainingBufferIfNeeded(_ buffer: AVAudioPCMBuffer) {
+    guard isTrainingRecordingEnabled, let file = trainingAudioFile else { return }
+    guard let copiedBuffer = copyPCMBuffer(buffer) else { return }
+
+    recordingQueue.async { [weak self] in
+      do {
+        try file.write(from: copiedBuffer)
+      } catch {
+        self?.logger.error("Training audio write failed: \(error.localizedDescription)")
+        self?.isTrainingRecordingEnabled = false
+        self?.trainingAudioFile = nil
+        self?.sendEvent(withName: "NativeAudioError", body: [
+          "message": "Training audio write failed: \(error.localizedDescription)"
+        ])
+      }
+    }
+  }
+
+  private func copyPCMBuffer(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+    guard let copy = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameLength) else {
+      return nil
+    }
+    copy.frameLength = buffer.frameLength
+
+    if let source = buffer.floatChannelData, let destination = copy.floatChannelData {
+      let channelCount = Int(buffer.format.channelCount)
+      let frameCount = Int(buffer.frameLength)
+      for channel in 0..<channelCount {
+        destination[channel].update(from: source[channel], count: frameCount)
+      }
+    } else if let source = buffer.int16ChannelData, let destination = copy.int16ChannelData {
+      let channelCount = Int(buffer.format.channelCount)
+      let frameCount = Int(buffer.frameLength)
+      for channel in 0..<channelCount {
+        destination[channel].update(from: source[channel], count: frameCount)
+      }
+    } else if let source = buffer.int32ChannelData, let destination = copy.int32ChannelData {
+      let channelCount = Int(buffer.format.channelCount)
+      let frameCount = Int(buffer.frameLength)
+      for channel in 0..<channelCount {
+        destination[channel].update(from: source[channel], count: frameCount)
+      }
+    }
+
+    return copy
   }
 
   // MARK: - ML Snore Event

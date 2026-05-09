@@ -1,0 +1,29 @@
+{
+  "activityEntities" : [
+    "projectCreated",
+    [
+      {
+        "createdDate" : "2026-02-17T23:05:31Z",
+        "event" : "projectCreated",
+        "id" : "3306333D-70CC-434C-A5CF-749593FF3510",
+        "subtitle" : "MySoundClassifier",
+        "title" : "Project Created"
+      }
+    ]
+  ],
+  "authorName" : "Gabriel Maldonado",
+  "createdDate" : "2026-02-17T23:05:31Z",
+  "description" : "",
+  "id" : "FFF3F4BF-7815-418B-825C-624C305FD558",
+  "license" : "",
+  "location" : "",
+  "modifiedDate" : "2026-02-17T23:05:31Z",
+  "projectName" : "MySoundClassifier",
+  "settingsEntity" : {
+    "snapshotOnExtendTraining" : true,
+    "snapshotOnResumeTraining" : false
+  },
+  "taskType" : "audioClassifier",
+  "title" : "Sound Classification",
+  "version" : "1.1"
+}

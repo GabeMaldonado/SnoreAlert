@@ -8,26 +8,60 @@
 
 /* Begin PBXBuildFile section */
 		0B64CDEF48D84FFDBC620F4B /* noop-file.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3433791507204267A1C5F4CF /* noop-file.swift */; };
+		0F60710A191AE2F8CE2E01A8 /* SnoreGuard Watch App Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = C36C9A3CCDD29B0AE00080FF /* SnoreGuard Watch App Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		138DCC64551C2E0CE1DC5378 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 825EEC0BAD374CEF0134E208 /* Assets.xcassets */; };
 		13B07FBC1A68108700A75B9A /* AppDelegate.mm in Sources */ = {isa = PBXBuildFile; fileRef = 13B07FB01A68108700A75B9A /* AppDelegate.mm */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		13B07FC11A68108700A75B9A /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 13B07FB71A68108700A75B9A /* main.m */; };
 		2BE26D3D99466A7CB1B914A8 /* WatchConnectivityBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4537B6B04F5AA7FCE7DA657F /* WatchConnectivityBridge.swift */; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
+		4933157E7DD31226D77A4891 /* ExtendedRuntimeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FF199228A32387DD619D0B7 /* ExtendedRuntimeManager.swift */; };
 		578FBC654E2CC4705B85A8DF /* SnoreClassifier.mlmodel in Resources */ = {isa = PBXBuildFile; fileRef = 15A5A5D30A1F3EA8B0FD60A3 /* SnoreClassifier.mlmodel */; };
 		5AD7DAE0DB9F946E511042DA /* NativeAudioRecorder.m in Sources */ = {isa = PBXBuildFile; fileRef = 7729D9B055EED1A1895C0EE6 /* NativeAudioRecorder.m */; };
 		61484DE7C575FA961941AD9E /* NotificationBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = 353BA6DB1D1CEE4A151B8BD9 /* NotificationBridge.m */; };
+		70F890EBA1F541E3D734FAB2 /* SnoreGuardApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB44A4D11C79C6E559D50840 /* SnoreGuardApp.swift */; };
 		745CA83F9A2C1C3017B2504E /* SleepSessionBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21CF61EF11C93D2FBF38F250 /* SleepSessionBridge.swift */; };
 		8B00784E1C25AB9F1544C4CD /* SoundAnalysis.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7336ED04BEDB14063A632CBE /* SoundAnalysis.framework */; };
 		8D7D8AB3B1D215D9DEA9792D /* WatchConnectivityBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = D20163CB2AAD2AF01BC3663D /* WatchConnectivityBridge.m */; };
 		8E4BD52F92BB30E8DF1F3B57 /* NativeAudioRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 251B48633E45B443E864DA59 /* NativeAudioRecorder.swift */; };
+		9DF39A47AFE223E02AFD6DA1 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0DD47FB172B6C1CF826FCD5A /* Foundation.framework */; };
 		A45D380D366B9F5951B50FF9 /* SleepSessionBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = 6E80CF9D1961A4D65AAEB856 /* SleepSessionBridge.m */; };
 		A76226C2F9029BC6F879299A /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 70C1B28BD3A845B479230AC2 /* PrivacyInfo.xcprivacy */; };
+		AF11A0C90987B0F3BEE29288 /* WatchAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF11A0C80987B0F3BEE29288 /* WatchAppDelegate.swift */; };
 		B18059E884C0ABDD17F3DC3D /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAC715A2D49A985799AEE119 /* ExpoModulesProvider.swift */; };
+		B418ECDD1EAAAFA2BFD0EA03 /* WatchConnectivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53FE4D6BD92AE53F12792F69 /* WatchConnectivityManager.swift */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
 		C7277CD65303911D33CA5490 /* libPods-SnoreGuard.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 0ACF6884D56C15701D519283 /* libPods-SnoreGuard.a */; };
 		C7E929E985FE9DD7FF5A22AB /* NotificationBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C6D28225A1C1984AD303F77 /* NotificationBridge.swift */; };
+		C84841C4DF3E34174C9D25EF /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19958ADA8F026635151EC948 /* ContentView.swift */; };
+		CD3C7A555BCBDF919BE90ADF /* AppConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A89CB1E89B2512BB7154632 /* AppConfig.swift */; };
+		CD9F5C42F73DF328224E6DC7 /* HapticManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83AC9B326E89FCD17C60CD94 /* HapticManager.swift */; };
 		E1287D1A144AEAEA81FFC8C5 /* CoreML.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 835C25B8E7BA20FF9DAAC0E7 /* CoreML.framework */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A1B2C3D4E5F60718293A4B5C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 83CBB9F71A601CBA00E9B192 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5AFBB556F5975C74EAB09641;
+			remoteInfo = "SnoreGuard Watch App Watch App";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		9AF6E1C22D14364A00E7B461 /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				0F60710A191AE2F8CE2E01A8 /* SnoreGuard Watch App Watch App.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		093242BF39E98C7F5F1572DB /* Pods-SnoreGuard.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-SnoreGuard.debug.xcconfig"; path = "Target Support Files/Pods-SnoreGuard/Pods-SnoreGuard.debug.xcconfig"; sourceTree = "<group>"; };
@@ -58,9 +92,10 @@
 		835C25B8E7BA20FF9DAAC0E7 /* CoreML.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreML.framework; path = System/Library/Frameworks/CoreML.framework; sourceTree = SDKROOT; };
 		83AC9B326E89FCD17C60CD94 /* HapticManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HapticManager.swift; sourceTree = "<group>"; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = SnoreGuard/SplashScreen.storyboard; sourceTree = "<group>"; };
-		AA644D372F43CB32006F4FE9 /* SnoreGuard Watch App Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "SnoreGuard Watch App Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA644D512F43CD26006F4FE9 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		AF11A0C80987B0F3BEE29288 /* WatchAppDelegate.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchAppDelegate.swift; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
+		C36C9A3CCDD29B0AE00080FF /* SnoreGuard Watch App Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "SnoreGuard Watch App Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		CB44A4D11C79C6E559D50840 /* SnoreGuardApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SnoreGuardApp.swift; sourceTree = "<group>"; };
 		D20163CB2AAD2AF01BC3663D /* WatchConnectivityBridge.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = SnoreGuard/WatchConnectivityBridge.m; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
@@ -68,31 +103,6 @@
 		F36C259A948A5F56B38DB35D /* Pods-SnoreGuard.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-SnoreGuard.release.xcconfig"; path = "Target Support Files/Pods-SnoreGuard/Pods-SnoreGuard.release.xcconfig"; sourceTree = "<group>"; };
 		FAC715A2D49A985799AEE119 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-SnoreGuard/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
-
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		AA644D652F43E3B8006F4FE9 /* Exceptions for "SnoreGuard Watch App Watch App" folder in "SnoreGuard Watch App Watch App" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Info.plist,
-			);
-			target = AA644D362F43CB32006F4FE9 /* SnoreGuard Watch App Watch App */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
-
-/* Begin PBXFileSystemSynchronizedRootGroup section */
-		AA644D382F43CB32006F4FE9 /* SnoreGuard Watch App Watch App */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				AA644D652F43E3B8006F4FE9 /* Exceptions for "SnoreGuard Watch App Watch App" folder in "SnoreGuard Watch App Watch App" target */,
-			);
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			path = "SnoreGuard Watch App Watch App";
-			sourceTree = "<group>";
-		};
-/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		13B07F8C1A680F5B00A75B9A /* Frameworks */ = {
@@ -105,10 +115,11 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		AA644D342F43CB32006F4FE9 /* Frameworks */ = {
+		DEAB8532AEA4D34BAD28606F /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				9DF39A47AFE223E02AFD6DA1 /* Foundation.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -173,7 +184,6 @@
 			children = (
 				13B07FAE1A68108700A75B9A /* SnoreGuard */,
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
-				AA644D382F43CB32006F4FE9 /* SnoreGuard Watch App Watch App */,
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
 				D65327D7A22EEC0BE12398D9 /* Pods */,
@@ -189,7 +199,7 @@
 			isa = PBXGroup;
 			children = (
 				13B07F961A680F5B00A75B9A /* SnoreGuard.app */,
-				AA644D372F43CB32006F4FE9 /* SnoreGuard Watch App Watch App.app */,
+				C36C9A3CCDD29B0AE00080FF /* SnoreGuard Watch App Watch App.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -203,6 +213,7 @@
 				5FF199228A32387DD619D0B7 /* ExtendedRuntimeManager.swift */,
 				83AC9B326E89FCD17C60CD94 /* HapticManager.swift */,
 				CB44A4D11C79C6E559D50840 /* SnoreGuardApp.swift */,
+				AF11A0C80987B0F3BEE29288 /* WatchAppDelegate.swift */,
 				53FE4D6BD92AE53F12792F69 /* WatchConnectivityManager.swift */,
 				825EEC0BAD374CEF0134E208 /* Assets.xcassets */,
 			);
@@ -255,6 +266,7 @@
 				13B07F871A680F5B00A75B9A /* Sources */,
 				13B07F8C1A680F5B00A75B9A /* Frameworks */,
 				13B07F8E1A680F5B00A75B9A /* Resources */,
+				9AF6E1C22D14364A00E7B461 /* Embed Watch Content */,
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
 				96ABA0A0D5E4015D0378E0E2 /* [CP] Embed Pods Frameworks */,
 				560714FD6CF4D1A18A51F316 /* [CP] Copy Pods Resources */,
@@ -262,30 +274,28 @@
 			buildRules = (
 			);
 			dependencies = (
+				B1C2D3E4F5061728394A5B6C /* PBXTargetDependency */,
 			);
 			name = SnoreGuard;
 			productName = SnoreGuard;
 			productReference = 13B07F961A680F5B00A75B9A /* SnoreGuard.app */;
 			productType = "com.apple.product-type.application";
 		};
-		AA644D362F43CB32006F4FE9 /* SnoreGuard Watch App Watch App */ = {
+		5AFBB556F5975C74EAB09641 /* SnoreGuard Watch App Watch App */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = AA644D422F43CB37006F4FE9 /* Build configuration list for <deleted target> */;
+			buildConfigurationList = 52D637C56E5E5FEF7E24E378 /* Build configuration list for PBXNativeTarget "SnoreGuard Watch App Watch App" */;
 			buildPhases = (
-				AA644D332F43CB32006F4FE9 /* Sources */,
-				AA644D342F43CB32006F4FE9 /* Frameworks */,
-				AA644D352F43CB32006F4FE9 /* Resources */,
+				29E56D339CAF6111F0D947D8 /* Sources */,
+				DEAB8532AEA4D34BAD28606F /* Frameworks */,
+				59F20E1EBB1A263888813980 /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 			);
-			fileSystemSynchronizedGroups = (
-				AA644D382F43CB32006F4FE9 /* SnoreGuard Watch App Watch App */,
-			);
 			name = "SnoreGuard Watch App Watch App";
 			productName = "SnoreGuard Watch App Watch App";
-			productReference = AA644D372F43CB32006F4FE9 /* SnoreGuard Watch App Watch App.app */;
+			productReference = C36C9A3CCDD29B0AE00080FF /* SnoreGuard Watch App Watch App.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -300,7 +310,7 @@
 					13B07F861A680F5B00A75B9A = {
 						LastSwiftMigration = 1250;
 					};
-					AA644D362F43CB32006F4FE9 = {
+					5AFBB556F5975C74EAB09641 = {
 						CreatedOnToolsVersion = 26.2;
 					};
 				};
@@ -319,6 +329,7 @@
 			projectRoot = "";
 			targets = (
 				13B07F861A680F5B00A75B9A /* SnoreGuard */,
+				5AFBB556F5975C74EAB09641 /* SnoreGuard Watch App Watch App */,
 			);
 		};
 /* End PBXProject section */
@@ -336,10 +347,11 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		AA644D352F43CB32006F4FE9 /* Resources */ = {
+		59F20E1EBB1A263888813980 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				138DCC64551C2E0CE1DC5378 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -484,14 +496,30 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		AA644D332F43CB32006F4FE9 /* Sources */ = {
+		29E56D339CAF6111F0D947D8 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CD3C7A555BCBDF919BE90ADF /* AppConfig.swift in Sources */,
+				C84841C4DF3E34174C9D25EF /* ContentView.swift in Sources */,
+				4933157E7DD31226D77A4891 /* ExtendedRuntimeManager.swift in Sources */,
+				CD9F5C42F73DF328224E6DC7 /* HapticManager.swift in Sources */,
+				70F890EBA1F541E3D734FAB2 /* SnoreGuardApp.swift in Sources */,
+				AF11A0C90987B0F3BEE29288 /* WatchAppDelegate.swift in Sources */,
+				B418ECDD1EAAAFA2BFD0EA03 /* WatchConnectivityManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		B1C2D3E4F5061728394A5B6C /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = "SnoreGuard Watch App Watch App";
+			target = 5AFBB556F5975C74EAB09641 /* SnoreGuard Watch App Watch App */;
+			targetProxy = A1B2C3D4E5F60718293A4B5C /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {
@@ -688,7 +716,56 @@
 			};
 			name = Release;
 		};
-		AA644D432F43CB37006F4FE9 /* Debug */ = {
+		86252A4049F0E6DEE1EDA614 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = TDSR3ULM7K;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "SnoreGuard Watch App Watch App/Info.plist";
+				INFOPLIST_KEY_WKApplication = "{\"WKWatchKitApp\": true}";
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.agenticdevlabs.snoreguard;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 1.0;
+				MTL_FAST_MATH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.agenticdevlabs.snoreguard.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				VALIDATE_PRODUCT = YES;
+				WATCHOS_DEPLOYMENT_TARGET = 9.0;
+			};
+			name = Release;
+		};
+		B4678FFA7BC60AE036328CB6 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -737,54 +814,6 @@
 			};
 			name = Debug;
 		};
-		AA644D442F43CB37006F4FE9 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CLANG_ANALYZER_NONNULL = YES;
-				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
-				CLANG_ENABLE_OBJC_WEAK = YES;
-				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
-				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
-				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
-				CODE_SIGN_STYLE = Automatic;
-				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1;
-				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = TDSR3ULM7K;
-				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu17;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = "SnoreGuard Watch App Watch App/Info.plist";
-				INFOPLIST_KEY_WKApplication = "{\"WKWatchKitApp\": true}";
-				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.agenticdevlabs.snoreguard;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 1.0;
-				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.agenticdevlabs.snoreguard.watchkitapp;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = watchos;
-				SKIP_INSTALL = YES;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_COMPILATION_MODE = wholemodule;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 9.0;
-			};
-			name = Release;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -797,20 +826,20 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		52D637C56E5E5FEF7E24E378 /* Build configuration list for PBXNativeTarget "SnoreGuard Watch App Watch App" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				86252A4049F0E6DEE1EDA614 /* Release */,
+				B4678FFA7BC60AE036328CB6 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		83CBB9FA1A601CBA00E9B192 /* Build configuration list for PBXProject "SnoreGuard" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				83CBBA201A601CBA00E9B192 /* Debug */,
 				83CBBA211A601CBA00E9B192 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		AA644D422F43CB37006F4FE9 /* Build configuration list for <deleted target> */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				AA644D432F43CB37006F4FE9 /* Debug */,
-				AA644D442F43CB37006F4FE9 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

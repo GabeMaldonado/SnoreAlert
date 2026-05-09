@@ -19,10 +19,11 @@ import {
   requestPurchase,
 } from 'react-native-iap';
 
-const { SleepSessionBridge, NotificationBridge } = NativeModules;
+const { SleepSessionBridge, NotificationBridge, WatchConnectivityBridge } = NativeModules;
 const LOG_FILE = FileSystem.documentDirectory + 'app_log.txt';
 const NOTIFICATION_COOLDOWN_MS = 10000; // 10 seconds between notifications
 const LAST_SESSION_KEY = '@snoreguard:last_session';
+const TRAINING_RECORDING_KEY = '@snoreguard:training_recording_enabled';
 
 // In-memory log buffer — primary source for viewLogs. File write is best-effort backup.
 // This survives render cycles but is cleared on app restart (file covers cross-session reads).
@@ -124,6 +125,7 @@ export default function App() {
   // Notification settings state
   const [dailyReminderEnabled, setDailyReminderEnabled] = useState(true);
   const [reminderTime, setReminderTime] = useState('19:00'); // 7 PM default
+  const [trainingRecordingEnabled, setTrainingRecordingEnabled] = useState(false);
   const [isInitialLoadComplete, setIsInitialLoadComplete] = useState(false);
 
   // Subscription / paywall state
@@ -221,6 +223,11 @@ export default function App() {
         setReminderTime(savedReminderTime);
       }
 
+      const savedTrainingRecording = await AsyncStorage.getItem(TRAINING_RECORDING_KEY);
+      if (savedTrainingRecording !== null) {
+        setTrainingRecordingEnabled(JSON.parse(savedTrainingRecording));
+      }
+
       // Load sensitivity FIRST — sensitivityRef.current must be correct before
       // checkRecoveredSession runs below.
       const savedSensitivity = await AsyncStorage.getItem('sensitivity');
@@ -293,8 +300,16 @@ export default function App() {
           setSnoreEventCount(snoreCountRef.current);
 
           if (canNotify) {
-
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+
+            if (WatchConnectivityBridge?.sendVibrateCommand) {
+              try {
+                WatchConnectivityBridge.sendVibrateCommand();
+                logEvent('Sent 5-pulse watch alert command');
+              } catch (error) {
+                logEvent(`ERROR sending watch alert command: ${error.message || error}`);
+              }
+            }
 
             if (NotificationBridge) {
               try {
@@ -351,6 +366,7 @@ export default function App() {
         }
       );
       snoreDetectorRef.current.SNORE_THRESHOLD = SENSITIVITY_LEVELS[sensitivityRef.current];
+      snoreDetectorRef.current.setTrainingRecordingEnabled(trainingRecordingEnabled);
     };
 
     setupDetector();
@@ -382,6 +398,13 @@ export default function App() {
       logEvent(`Sensitivity updated to ${sensitivity} (${SENSITIVITY_LEVELS[sensitivity]} dB)`);
     }
   }, [sensitivity]);
+
+  useEffect(() => {
+    AsyncStorage.setItem(TRAINING_RECORDING_KEY, JSON.stringify(trainingRecordingEnabled));
+    if (snoreDetectorRef.current) {
+      snoreDetectorRef.current.setTrainingRecordingEnabled(trainingRecordingEnabled);
+    }
+  }, [trainingRecordingEnabled]);
 
   const startMonitoring = async () => {
     logEvent('startMonitoring called');
@@ -427,6 +450,9 @@ export default function App() {
         // Log session start with clear separator
         const startLog = `\n${'='.repeat(50)}\n━━━ SLEEP SESSION STARTED ━━━\nTime: ${startTime.toLocaleString()}\nSensitivity: ${sensitivity} (${SENSITIVITY_LEVELS[sensitivity]} dB)`;
         await logEvent(startLog);
+        if (trainingRecordingEnabled) {
+          await logEvent('Training audio capture enabled for this session');
+        }
 
         await activateKeepAwakeAsync();
         keepAwakeEnabled = true;
@@ -436,6 +462,16 @@ export default function App() {
           SleepSessionBridge.startSleepSession();
         }
 
+        if (WatchConnectivityBridge?.startWatchSession) {
+          try {
+            WatchConnectivityBridge.startWatchSession();
+            logEvent('Watch session activated for overnight monitoring');
+          } catch (e) {
+            logEvent(`Watch session activation error: ${e.message || e}`);
+          }
+        }
+
+        snoreDetectorRef.current.setTrainingRecordingEnabled(trainingRecordingEnabled);
         await snoreDetectorRef.current.startMonitoring();
         setIsMonitoring(true);
     } catch (error) {
@@ -464,6 +500,15 @@ export default function App() {
           }
           SleepSessionBridge.stopSleepSession();
         }
+
+        if (WatchConnectivityBridge?.stopWatchSession) {
+          try {
+            WatchConnectivityBridge.stopWatchSession();
+            logEvent('Watch session marked inactive');
+          } catch (e) {
+            logEvent(`Watch session stop error: ${e.message || e}`);
+          }
+        }
         setIsMonitoring(false);
         setLastSnoreLevel(null);
         setCurrentAudioLevel(null);
@@ -487,6 +532,7 @@ export default function App() {
 
         const mlDetectionCount = snoreCountRef.current;
         const mlTimes = mlDetectionTimesRef.current;
+        const trainingRecordingPath = snoreDetectorRef.current.getLastTrainingRecordingPath?.();
 
         if (snoreCount > 0) {
           snoreEvents.forEach(event => {
@@ -504,6 +550,9 @@ export default function App() {
         }
 
         logMessage += `📊 ${mlDetectionCount} ML detections. Score: ${sessionScore}/100\n${'='.repeat(50)}`;
+        if (trainingRecordingPath) {
+          logMessage += `\nTraining audio saved:\n${trainingRecordingPath}`;
+        }
 
         await logEvent(logMessage);
 
@@ -526,6 +575,7 @@ export default function App() {
             endTime: endTime.toISOString(),
             savedAt: new Date().toISOString(),
             snoreCount: snoreCountRef.current,
+            trainingRecordingPath,
           };
           await AsyncStorage.setItem(LAST_SESSION_KEY, JSON.stringify(lastSession));
           logEvent('Session saved to persistent storage');
@@ -652,6 +702,17 @@ export default function App() {
       value
         ? `You'll receive a daily reminder at ${reminderTime} to start monitoring.`
         : 'Daily reminders have been turned off.'
+    );
+  };
+
+  const toggleTrainingRecording = async (value) => {
+    setTrainingRecordingEnabled(value);
+    await AsyncStorage.setItem(TRAINING_RECORDING_KEY, JSON.stringify(value));
+    Alert.alert(
+      value ? 'Training Capture Enabled' : 'Training Capture Disabled',
+      value
+        ? 'Future sessions will save microphone audio on this iPhone for model improvement.'
+        : 'Future sessions will only save detection summary data.'
     );
   };
 
@@ -1185,7 +1246,20 @@ export default function App() {
           {/* Notification Settings */}
           {!isMonitoring && (
             <View style={styles.settingsCard}>
-              <Text style={styles.settingsTitle}>⏰ Reminders</Text>
+              <Text style={styles.settingsTitle}>Session Settings</Text>
+              <View style={styles.settingRow}>
+                <View style={styles.settingInfo}>
+                  <Text style={styles.settingLabel}>Training Audio Capture</Text>
+                  <Text style={styles.settingHint}>Save overnight microphone audio on this iPhone for model training</Text>
+                </View>
+                <Switch
+                  value={trainingRecordingEnabled}
+                  onValueChange={toggleTrainingRecording}
+                  trackColor={{ false: '#767577', true: '#4a90e2' }}
+                  thumbColor={trainingRecordingEnabled ? '#ffffff' : '#f4f3f4'}
+                />
+              </View>
+              <View style={styles.settingDivider} />
               <View style={styles.settingRow}>
                 <View style={styles.settingInfo}>
                   <Text style={styles.settingLabel}>Daily Evening Reminder</Text>
@@ -1199,7 +1273,7 @@ export default function App() {
                 />
               </View>
               <Text style={styles.settingsFooter}>
-                📊 You'll receive a sleep summary immediately after each session ends
+                You'll receive a sleep summary immediately after each session ends.
               </Text>
             </View>
           )}
@@ -1606,6 +1680,11 @@ const styles = StyleSheet.create({
   settingHint: {
     fontSize: 13,
     color: '#6b7280',
+  },
+  settingDivider: {
+    height: 1,
+    backgroundColor: '#e5e7eb',
+    marginBottom: 12,
   },
   settingsFooter: {
     fontSize: 13,

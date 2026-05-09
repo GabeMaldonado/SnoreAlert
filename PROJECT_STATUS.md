@@ -1,6 +1,31 @@
 # SnoreGuard - Project Status & Context
-**Last Updated**: April 6, 2026
-**Status**: Pre-Launch — detection tuning in progress, watch delivery simplified to mirrored phone notifications
+**Last Updated**: May 9, 2026
+**Status**: Pre-Launch — native Watch companion integrated, detection/training-data loop in progress
+
+---
+
+## May 2026 Update
+
+The April direction that relied mainly on mirrored iPhone notifications is no longer the current state. A native watchOS companion app has been rebuilt and integrated into the iPhone app.
+
+### Current Architecture
+- iPhone app runs microphone capture, SoundAnalysis/Core ML snore detection, session analytics, and settings.
+- iPhone app uses `WatchConnectivityBridge` to send session start/stop state and haptic alerts to the Apple Watch.
+- Watch app handles WCSession messages, haptic playback, extended runtime support, and a small scrollable status UI.
+- Native iOS audio recorder now supports opt-in Training Audio Capture for saving full session `.caf` files locally.
+
+### Recent Fixes
+- Fixed a false-positive path where random loud noises could trigger alerts while ML mode was active. In ML mode, alert events now require an ML snore-confidence event rather than a raw dB threshold crossing.
+- Added a `Training Audio Capture` setting in Session Settings.
+- Training recordings are saved under app Documents in `SnoreGuardTrainingSessions/` and logged after the session stops.
+- Refreshed watch provisioning/signing with `-allowProvisioningUpdates`; iPhone Release install and Xcode watch-target install succeeded on May 6, 2026.
+
+### Current Validation Priorities
+1. Confirm the watch app opens without the previous "integrity could not be verified" error.
+2. Run an overnight test with Training Audio Capture enabled.
+3. Compare partner-observed snoring with app detections and haptic alerts.
+4. Use captured snore and false-positive audio to improve the Create ML sound classifier.
+5. Keep watchOS background/runtime behavior under real-device validation; watchOS may still constrain always-listening behavior overnight.
 
 ---
 

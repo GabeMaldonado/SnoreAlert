@@ -22,6 +22,8 @@ export class SnoreDetector {
         this.isRestarting = false;
         this.recordingRestartIntervalMs = 15 * 60 * 1000; // 15 minutes
         this.statusStallThresholdMs = 20000; // 20 seconds without status update
+        this.recordTrainingAudio = false;
+        this.lastTrainingRecordingPath = null;
     }
 
     async requestPermissions() {
@@ -35,6 +37,14 @@ export class SnoreDetector {
         return status === 'granted';
     }
 
+    setTrainingRecordingEnabled(enabled) {
+        this.recordTrainingAudio = !!enabled;
+    }
+
+    getLastTrainingRecordingPath() {
+        return this.lastTrainingRecordingPath;
+    }
+
     async startMonitoring() {
         if (this.isMonitoring) return;
 
@@ -42,7 +52,9 @@ export class SnoreDetector {
             if (this.useNative) {
                 try {
                     this.subscribeNativeEvents();
-                    await NativeAudioRecorder.start();
+                    await NativeAudioRecorder.start({
+                        saveTrainingRecording: this.recordTrainingAudio,
+                    });
                     this.isMonitoring = true;
                     console.log('Snore monitoring started (native)');
                     return;
@@ -72,7 +84,8 @@ export class SnoreDetector {
 
         try {
             if (this.useNative) {
-                await NativeAudioRecorder.stop();
+                const result = await NativeAudioRecorder.stop();
+                this.lastTrainingRecordingPath = result?.trainingRecordingPath || this.lastTrainingRecordingPath;
                 this.unsubscribeNativeEvents();
                 this.isMonitoring = false;
                 console.log('Snore monitoring stopped (native)');
@@ -97,12 +110,17 @@ export class SnoreDetector {
         if (status.isRecording && status.metering !== undefined) {
             const currentLevel = status.metering;
             const mlConfidence = status.mlSnoreConfidence;
+            const mlActive = status.mlActive === true;
 
             if (this.onLevelUpdate) {
                 this.onLevelUpdate(currentLevel);
             }
 
-            if (currentLevel > this.SNORE_THRESHOLD) {
+            const isSnoreEvent = mlActive
+                ? mlConfidence !== undefined
+                : currentLevel > this.SNORE_THRESHOLD;
+
+            if (isSnoreEvent) {
                 if (this.onSnoreDetected) {
                     this.onSnoreDetected(currentLevel, mlConfidence);
                 }
@@ -119,8 +137,12 @@ export class SnoreDetector {
                     this.onStatusUpdate({
                         isRecording: true,
                         metering: level,
+                        mlActive: event?.mlActive,
                         mlSnoreConfidence: event?.mlSnoreConfidence,
                     });
+                    if (event?.trainingRecordingPath) {
+                        this.lastTrainingRecordingPath = event.trainingRecordingPath;
+                    }
                 }
             });
         }

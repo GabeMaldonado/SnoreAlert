@@ -1,0 +1,27 @@
+# macOS
+.DS_Store
+
+# JavaScript / Expo
+node_modules/
+.expo/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editors and local agent state
+.vscode/
+.claude/
+
+# Native build outputs
+android/
+ios/build/
+ios/Pods/
+DerivedData/
+*.xcuserstate
+
+# Local scratch/cache artifacts
+_tmp_cache/
+training_data_tmp/
+*.backup
+node-v*.pkg
+
