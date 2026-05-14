@@ -9,6 +9,8 @@ final class WatchConnectivityBridge: NSObject, WCSessionDelegate {
   private let pulseCount = 5
   private let pulseIntervalMs = 700
   private var didActivateSession = false
+  private var heartbeatTimer: Timer?
+  private var pendingMonitoringState: Bool? = nil
 
   private var watchSession: WCSession? {
     guard WCSession.isSupported() else { return nil }
@@ -18,13 +20,36 @@ final class WatchConnectivityBridge: NSObject, WCSessionDelegate {
   @objc
   func startWatchSession() {
     activateSessionIfNeeded()
-    sendMonitoringState(isMonitoring: true)
+    if watchSession?.activationState == .activated {
+      sendMonitoringState(isMonitoring: true)
+      startHeartbeatTimer()
+    } else {
+      // Activation is async — send once the delegate fires
+      pendingMonitoringState = true
+    }
   }
 
   @objc
   func stopWatchSession() {
+    pendingMonitoringState = nil
+    DispatchQueue.main.async { [weak self] in
+      self?.heartbeatTimer?.invalidate()
+      self?.heartbeatTimer = nil
+    }
     activateSessionIfNeeded()
-    sendMonitoringState(isMonitoring: false)
+    if watchSession?.activationState == .activated {
+      sendMonitoringState(isMonitoring: false)
+    }
+  }
+
+  private func startHeartbeatTimer() {
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { return }
+      self.heartbeatTimer?.invalidate()
+      self.heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+        self?.sendMonitoringState(isMonitoring: true)
+      }
+    }
   }
 
   @objc
@@ -54,6 +79,12 @@ final class WatchConnectivityBridge: NSObject, WCSessionDelegate {
     }
 
     logger.info("WCSession activated with state \(activationState.rawValue)")
+
+    if let pending = pendingMonitoringState {
+      pendingMonitoringState = nil
+      sendMonitoringState(isMonitoring: pending)
+      if pending { startHeartbeatTimer() }
+    }
   }
 
   func sessionDidBecomeInactive(_ session: WCSession) {

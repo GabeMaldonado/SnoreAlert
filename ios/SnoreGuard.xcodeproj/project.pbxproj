@@ -30,6 +30,7 @@
 		AF11A0C90987B0F3BEE29288 /* WatchAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF11A0C80987B0F3BEE29288 /* WatchAppDelegate.swift */; };
 		B18059E884C0ABDD17F3DC3D /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAC715A2D49A985799AEE119 /* ExpoModulesProvider.swift */; };
 		B418ECDD1EAAAFA2BFD0EA03 /* WatchConnectivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53FE4D6BD92AE53F12792F69 /* WatchConnectivityManager.swift */; };
+		B59F69B080AFF4CACC1C487B /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 70C1B28BD3A845B479230AC2 /* PrivacyInfo.xcprivacy */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
 		C7277CD65303911D33CA5490 /* libPods-SnoreGuard.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 0ACF6884D56C15701D519283 /* libPods-SnoreGuard.a */; };
 		C7E929E985FE9DD7FF5A22AB /* NotificationBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C6D28225A1C1984AD303F77 /* NotificationBridge.swift */; };
@@ -352,6 +353,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				138DCC64551C2E0CE1DC5378 /* Assets.xcassets in Resources */,
+				B59F69B080AFF4CACC1C487B /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -748,6 +750,7 @@
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MARKETING_VERSION = 1.0;
 				MTL_FAST_MATH = YES;
+				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
 				PRODUCT_BUNDLE_IDENTIFIER = com.agenticdevlabs.snoreguard.watchkitapp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
@@ -797,6 +800,7 @@
 				MARKETING_VERSION = 1.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
+				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
 				PRODUCT_BUNDLE_IDENTIFIER = com.agenticdevlabs.snoreguard.watchkitapp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;

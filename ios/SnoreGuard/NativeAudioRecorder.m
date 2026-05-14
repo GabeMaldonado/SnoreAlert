@@ -13,6 +13,9 @@ RCT_EXTERN_METHOD(setTrainingRecordingEnabled:(BOOL)enabled
                   rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(getLastTrainingRecordingPath:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(processAudioForPlayback:(NSString *)sourcePath
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
 
 + (BOOL)requiresMainQueueSetup
 {

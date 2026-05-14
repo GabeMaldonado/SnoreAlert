@@ -16,8 +16,10 @@ import subprocess
 MLPROJ_DIR = "MySoundClassifier.mlproj"
 IOS_MODEL_DEST = "ios/SnoreGuard/SnoreClassifier.mlmodel"
 DEVICE_ID = "99C20B85-2B42-51CD-9767-6B0CE17A0491"
+WATCH_DEVICE_ID = "2440394F-035B-5446-96A1-9C8B165D3007"
 TEAM_ID = "TDSR3ULM7K"
 APP_BUNDLE = "com.agenticdevlabs.snoreguard"
+WATCH_BUNDLE = "com.agenticdevlabs.snoreguard.watchkitapp"
 BUILD_DIR = "ios/build"
 
 
@@ -61,14 +63,15 @@ def main():
     shutil.copy2(model_path, IOS_MODEL_DEST)
     print(f"[OK] Copied")
 
-    # 3. Build
-    print(f"\n[BUILD] Building Release for device...")
+    # 3. Build iPhone app (the Watch app is embedded inside as a companion —
+    #    iOS will push it to the paired Watch automatically after install).
+    print(f"\n[BUILD] Building iPhone + embedded Watch app (Release)...")
     run([
         "xcodebuild", "build",
         "-workspace", "ios/SnoreGuard.xcworkspace",
         "-scheme", "SnoreGuard",
         "-configuration", "Release",
-        "-sdk", "iphoneos",
+        "-destination", "generic/platform=iOS",
         "-derivedDataPath", BUILD_DIR,
         "-allowProvisioningUpdates",
         "CODE_SIGN_STYLE=Automatic",
@@ -76,24 +79,30 @@ def main():
     ])
     print("[OK] Build succeeded")
 
-    # 4. Install
+    # 4. Install iPhone app — iOS delivers the embedded Watch app to the Watch
+    #    via the normal companion pairing channel. Do NOT install the Watch app
+    #    directly via devicectl; that breaks the WCSession companion link.
     app_path = os.path.join(BUILD_DIR, "Build/Products/Release-iphoneos/SnoreGuard.app")
     if not os.path.isdir(app_path):
-        print(f"[ERROR] App not found at {app_path}")
+        print(f"[ERROR] iPhone app not found at {app_path}")
         sys.exit(1)
+
+    watch_embedded = os.path.join(app_path, "Watch", "SnoreGuard Watch App Watch App.app")
+    if os.path.isdir(watch_embedded):
+        print(f"[INFO] Watch app embedded in iPhone bundle — will be pushed to Watch automatically")
 
     print(f"\n[INSTALL] Installing on device {DEVICE_ID}...")
     run(["xcrun", "devicectl", "device", "install", "app",
          "--device", DEVICE_ID, app_path])
     print("[OK] Installed")
 
-    # 5. Launch
+    # 5. Launch iPhone app
     print(f"\n[LAUNCH] Launching {APP_BUNDLE}...")
     run(["xcrun", "devicectl", "device", "process", "launch",
          "--device", DEVICE_ID, APP_BUNDLE])
     print("[OK] Launched")
 
-    print("\n✅ Done! SnoreGuard is running with the new model.")
+    print("\n✅ Done! SnoreGuard installed. Watch app will sync automatically via the Watch app on iPhone.")
 
 
 if __name__ == "__main__":

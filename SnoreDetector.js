@@ -116,8 +116,10 @@ export class SnoreDetector {
                 this.onLevelUpdate(currentLevel);
             }
 
+            // ML events must also pass the dB gate so ambient noise at the
+            // right frequency can't trigger alerts — belt-and-suspenders.
             const isSnoreEvent = mlActive
-                ? mlConfidence !== undefined
+                ? mlConfidence !== undefined && currentLevel > this.SNORE_THRESHOLD
                 : currentLevel > this.SNORE_THRESHOLD;
 
             if (isSnoreEvent) {

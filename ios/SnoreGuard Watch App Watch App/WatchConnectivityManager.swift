@@ -6,6 +6,7 @@ import WatchKit
 @MainActor
 final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDelegate {
   @Published private(set) var activationStateText = "Not activated"
+  @Published private(set) var isSessionActivated = false
   @Published private(set) var isReachable = false
   @Published private(set) var isMonitoring = false
   @Published private(set) var lastMessage = "Waiting for iPhone"
@@ -16,6 +17,9 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
   private var hasContentPendingObservation: NSKeyValueObservation?
   private var pendingBackgroundTasks: [WKWatchConnectivityRefreshBackgroundTask] = []
   private var processedMessageIDs: [String] = []
+  private var lastHeartbeatDate: Date?
+  private var staleCheckTimer: Timer?
+  private static let monitoringTTL: TimeInterval = 180 // 3 min — iPhone sends heartbeat every 60s
 
   init(hapticManager: HapticManager, runtimeManager: ExtendedRuntimeManager) {
     self.hapticManager = hapticManager
@@ -32,8 +36,16 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
     let session = WCSession.default
     session.delegate = self
     configureObserversIfNeeded(for: session)
-    session.activate()
-    activationStateText = "Activating"
+
+    if session.activationState == .activated {
+      // Already active — just sync reachability without resetting UI state.
+      isReachable = session.isReachable
+      isSessionActivated = true
+      activationStateText = "Activated (\(session.activationState.rawValue))"
+    } else {
+      session.activate()
+      activationStateText = "Activating"
+    }
   }
 
   func enqueueBackgroundTasks(_ tasks: [WKWatchConnectivityRefreshBackgroundTask]) {
@@ -49,8 +61,10 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
     Task { @MainActor in
       if let error {
         self.activationStateText = "Activation failed: \(error.localizedDescription)"
+        self.isSessionActivated = false
       } else {
         self.activationStateText = "Activated (\(activationState.rawValue))"
+        self.isSessionActivated = (activationState == .activated)
         self.isReachable = session.isReachable
       }
 
@@ -93,8 +107,12 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
       isMonitoring = monitoring
       lastMessage = monitoring ? "Monitoring armed from iPhone" : "Monitoring stopped on iPhone"
       if monitoring {
+        lastHeartbeatDate = Date()
+        startStaleCheckTimer()
         runtimeManager.startIfNeeded()
       } else {
+        lastHeartbeatDate = nil
+        stopStaleCheckTimer()
         runtimeManager.stop()
       }
     }
@@ -111,6 +129,31 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
     hapticManager.playSnoreAlert(pulseCount: pulseCount, pulseIntervalMs: pulseIntervalMs)
     lastMessage = "Snore alert received"
     completePendingBackgroundTasksIfPossible()
+  }
+
+  private func startStaleCheckTimer() {
+    guard staleCheckTimer == nil else { return }
+    staleCheckTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+      Task { @MainActor [weak self] in
+        self?.checkMonitoringStaleness()
+      }
+    }
+  }
+
+  private func stopStaleCheckTimer() {
+    staleCheckTimer?.invalidate()
+    staleCheckTimer = nil
+  }
+
+  private func checkMonitoringStaleness() {
+    guard isMonitoring, let last = lastHeartbeatDate else { return }
+    if Date().timeIntervalSince(last) > Self.monitoringTTL {
+      isMonitoring = false
+      lastMessage = "Monitoring timed out — iPhone may have crashed"
+      lastHeartbeatDate = nil
+      stopStaleCheckTimer()
+      runtimeManager.stop()
+    }
   }
 
   private func configureObserversIfNeeded(for session: WCSession) {

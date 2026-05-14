@@ -1,5 +1,7 @@
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, Text, View, SafeAreaView, NativeModules, Alert, ScrollView, Dimensions, AppState, TouchableOpacity, Switch, Modal } from 'react-native';
+import { Audio } from 'expo-av';
+import Svg, { Path, Line, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { useState, useEffect, useRef } from 'react';
 import { SnoreDetector } from './SnoreDetector';
 import * as Haptics from 'expo-haptics';
@@ -20,7 +22,8 @@ import {
 } from 'react-native-iap';
 
 const { SleepSessionBridge, NotificationBridge, WatchConnectivityBridge } = NativeModules;
-const LOG_FILE = FileSystem.documentDirectory + 'app_log.txt';
+const LOG_DIR  = FileSystem.documentDirectory + 'SnoreGuardTrainingSessions/';
+const LOG_FILE = LOG_DIR + 'snoreguard-log.txt';
 const NOTIFICATION_COOLDOWN_MS = 10000; // 10 seconds between notifications
 const LAST_SESSION_KEY = '@snoreguard:last_session';
 const TRAINING_RECORDING_KEY = '@snoreguard:training_recording_enabled';
@@ -59,7 +62,9 @@ const GIFT_CODES = [
 // Configure notification handler
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
+    shouldShowAlert: true, // kept for SDK <52 compatibility
+    shouldShowBanner: true,
+    shouldShowList: true,
     shouldPlaySound: true,
     shouldSetBadge: false,
   }),
@@ -70,13 +75,24 @@ const logEvent = async (message) => {
   const logEntry = `${timestamp}: ${message}\n`;
   console.log(logEntry);
   inMemoryLogs.push(logEntry); // always available for viewLogs this session
+};
+
+// Write the complete in-memory session log to a timestamped file alongside the audio.
+// Called once at session end so the file is always complete and never partially written.
+const flushSessionLog = async (sessionStart) => {
+  if (inMemoryLogs.length === 0) return;
   try {
-    await FileSystem.writeAsStringAsync(LOG_FILE, logEntry, {
+    const d = sessionStart instanceof Date ? sessionStart : new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const stamp = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+    const path = LOG_DIR + `snoreguard-log-${stamp}.txt`;
+    await FileSystem.makeDirectoryAsync(LOG_DIR, { intermediates: true }).catch(() => {});
+    await FileSystem.writeAsStringAsync(path, inMemoryLogs.join(''), {
       encoding: FileSystem.EncodingType.UTF8,
-      append: true,
     });
+    console.log(`Session log saved: ${path}`);
   } catch (e) {
-    console.error('Failed to write log', e);
+    console.error('Failed to save session log:', e);
   }
 };
 
@@ -86,17 +102,19 @@ const calculateSnoreScore = (sessionData, threshold, mlEventCount = 0) => {
   if (!sessionData || sessionData.length === 0) return 0;
 
   const dbSnoreEvents = sessionData.filter(d => d.level > threshold);
-  // Use whichever count is higher so the score reflects all detected snoring.
   const effectiveEventCount = Math.max(dbSnoreEvents.length, mlEventCount);
   if (effectiveEventCount === 0) return 0;
 
-  const avgIntensity = dbSnoreEvents.length > 0
-    ? dbSnoreEvents.reduce((sum, d) => sum + Math.abs(d.level), 0) / dbSnoreEvents.length
-    : 28; // fallback: ML caught events near the threshold
   const snorePercentage = (effectiveEventCount / sessionData.length) * 100;
 
-  // Score from 0-100 (lower is better)
-  return Math.min(100, Math.round((snorePercentage * 0.7) + (avgIntensity * 0.3)));
+  // Average dB above threshold (positive = louder than threshold). Cap at 30 dB excess → 100%.
+  const avgExcess = dbSnoreEvents.length > 0
+    ? dbSnoreEvents.reduce((sum, d) => sum + (d.level - threshold), 0) / dbSnoreEvents.length
+    : 5; // fallback: ML caught events just above the threshold
+  const normalizedIntensity = Math.min(100, (avgExcess / 30) * 100);
+
+  // Score 0-100 (lower is better): 70% frequency, 30% intensity above threshold
+  return Math.min(100, Math.round(snorePercentage * 0.7 + normalizedIntensity * 0.3));
 };
 
 export default function App() {
@@ -110,6 +128,7 @@ export default function App() {
   const [sensitivity, setSensitivity] = useState('Medium');
   const [snoreEventCount, setSnoreEventCount] = useState(0);
   const snoreDetectorRef = useRef(null);
+  const isMonitoringRef = useRef(false);
   const sensitivityRef = useRef('Medium');
   const lastDataPointTimeRef = useRef(0);
   const lastLogTimeRef = useRef(0);
@@ -117,10 +136,21 @@ export default function App() {
   const snoreCountRef = useRef(0);
   const mlDetectionTimesRef = useRef([]);
   const logScrollViewRef = useRef(null);
+  const logScrollAtBottomRef = useRef(true);
+  const playbackSoundRef = useRef(null);
+  const scrubberRef = useRef({ width: 0, isDragging: false });
   const appState = useRef(AppState.currentState);
 
   const [showLogsModal, setShowLogsModal] = useState(false);
   const [logContent, setLogContent] = useState('');
+  const [activeAnalyticsTab, setActiveAnalyticsTab] = useState('stats');
+  const [playbackStatus, setPlaybackStatus] = useState({ isPlaying: false, positionMs: 0, durationMs: 0 });
+  const [recordingPath, setRecordingPath] = useState(null);
+  const [waveformWidth, setWaveformWidth] = useState(Dimensions.get('window').width - 80);
+  const [scrubProgress, setScrubProgress] = useState(-1);
+  const [waveZoom, setWaveZoom] = useState(1.0);
+  const [waveOffset, setWaveOffset] = useState(0.5); // center of visible window [0,1]
+  const waveGestureRef = useRef({ pinchInitialDist: null, pinchInitialZoom: 1, panLastX: null, lastTapTime: 0 });
 
   // Notification settings state
   const [dailyReminderEnabled, setDailyReminderEnabled] = useState(true);
@@ -146,7 +176,7 @@ export default function App() {
           const nativeData = await SleepSessionBridge.getNativeData();
           // Skip recovery log if a session is actively running — this fires on every
           // foreground event and would log stale data from the previous session.
-          if (nativeData && nativeData.length > 0 && !snoreDetectorRef.current) {
+          if (nativeData && nativeData.length > 0 && !isMonitoringRef.current) {
             setSessionData(nativeData);
 
             const sessionStart = new Date(nativeData[0].time);
@@ -265,6 +295,7 @@ export default function App() {
             setSessionStartTime(new Date(startTime));
             setSessionEndTime(new Date(endTime));
             setSnoreEventCount(snoreCount || 0);
+            if (savedSession.trainingRecordingPath) setRecordingPath(savedSession.trainingRecordingPath);
             logEvent(`Loaded previous session from storage (${data.length} points)`);
           }
         }
@@ -296,7 +327,9 @@ export default function App() {
           // Count every sustained ML detection even when notifications are throttled,
           // so analytics reflect actual detected events instead of alert frequency.
           snoreCountRef.current += 1;
-          mlDetectionTimesRef.current.push(now);
+          const times = mlDetectionTimesRef.current;
+          times.push(now);
+          if (times.length > 500) times.shift(); // keep last 500 for stop-time reporting
           setSnoreEventCount(snoreCountRef.current);
 
           if (canNotify) {
@@ -318,6 +351,7 @@ export default function App() {
                   'Reposition to reduce snoring.'
                 );
                 logEvent('Scheduled local snore notification (native)');
+                lastNotificationTimeRef.current = now;
               } catch (error) {
                 logEvent(`ERROR scheduling notification: ${error.message || error}`);
                 console.error('Notification error:', error);
@@ -334,13 +368,12 @@ export default function App() {
                   trigger: null, // Show immediately
                 });
                 logEvent('Scheduled local snore notification (Expo fallback)');
+                lastNotificationTimeRef.current = now;
               } catch (error) {
                 logEvent(`ERROR scheduling Expo notification: ${error.message || error}`);
                 console.error('Expo notification error:', error);
               }
             }
-
-            lastNotificationTimeRef.current = now;
           } else {
             logEvent('Notification suppressed by cooldown; ML event still counted');
           }
@@ -381,9 +414,17 @@ export default function App() {
 
     const subscription = AppState.addEventListener('change', handleAppStateChange);
 
+    const notifResponseSub = Notifications.addNotificationResponseReceivedListener((response) => {
+      const type = response.notification.request.content.data?.type;
+      if (type === 'summary') {
+        setShowAnalytics(true);
+      }
+    });
+
     return () => {
       logEvent('App unmounting');
       subscription.remove();
+      notifResponseSub.remove();
       if (snoreDetectorRef.current) {
         snoreDetectorRef.current.stopMonitoring();
       }
@@ -473,6 +514,7 @@ export default function App() {
 
         snoreDetectorRef.current.setTrainingRecordingEnabled(trainingRecordingEnabled);
         await snoreDetectorRef.current.startMonitoring();
+        isMonitoringRef.current = true;
         setIsMonitoring(true);
     } catch (error) {
         logEvent(`Error in startMonitoring: ${error.message}`);
@@ -509,6 +551,7 @@ export default function App() {
             logEvent(`Watch session stop error: ${e.message || e}`);
           }
         }
+        isMonitoringRef.current = false;
         setIsMonitoring(false);
         setLastSnoreLevel(null);
         setCurrentAudioLevel(null);
@@ -533,6 +576,7 @@ export default function App() {
         const mlDetectionCount = snoreCountRef.current;
         const mlTimes = mlDetectionTimesRef.current;
         const trainingRecordingPath = snoreDetectorRef.current.getLastTrainingRecordingPath?.();
+        if (trainingRecordingPath) setRecordingPath(trainingRecordingPath);
 
         if (snoreCount > 0) {
           snoreEvents.forEach(event => {
@@ -541,10 +585,13 @@ export default function App() {
             logMessage += `🔊 Loud snoring (${dB} dB) at ${eventTime}\n`;
           });
         } else if (mlDetectionCount > 0) {
-          // dB threshold had no crossings, but ML fired — show individual ML event times
-          mlTimes.forEach((ts, i) => {
-            logMessage += `🤖 ML snore detected at ${new Date(ts).toLocaleTimeString()} (event ${i + 1})\n`;
+          const showTimes = mlTimes.slice(-20); // last 20 logged events
+          showTimes.forEach((ts, i) => {
+            logMessage += `🤖 ML snore at ${new Date(ts).toLocaleTimeString()}\n`;
           });
+          if (mlDetectionCount > 20) {
+            logMessage += `  … and ${mlDetectionCount - 20} earlier events\n`;
+          }
         } else {
           logMessage += `No snoring detected this session\n`;
         }
@@ -555,6 +602,10 @@ export default function App() {
         }
 
         await logEvent(logMessage);
+
+        // Write the complete session log to a timestamped file alongside the audio.
+        // One atomic write at session end — never fragmented by overnight JS suspensions.
+        await flushSessionLog(sessionStartTime);
 
         await Notifications.scheduleNotificationAsync({
           content: {
@@ -602,6 +653,84 @@ export default function App() {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m ${seconds % 60}s`;
+  };
+
+  const formatPlaybackTime = (ms) => {
+    const totalSec = Math.floor((ms || 0) / 1000);
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    return `${m}:${String(s).padStart(2, '0')}`;
+  };
+
+  const loadPlaybackAudio = async (path) => {
+    try {
+      if (playbackSoundRef.current) {
+        await playbackSoundRef.current.unloadAsync().catch(() => {});
+        playbackSoundRef.current = null;
+      }
+
+      // Apply voice filter (low-pass ~300 Hz) — removes speech, keeps snoring/breathing.
+      // Falls back to the original file if native processing is unavailable or fails.
+      let playPath = path;
+      if (NativeModules.NativeAudioRecorder?.processAudioForPlayback) {
+        try {
+          logEvent('Filtering voice from recording for playback…');
+          playPath = await NativeModules.NativeAudioRecorder.processAudioForPlayback(path);
+          logEvent('Voice filter applied');
+        } catch (e) {
+          logEvent(`Voice filter failed (using original): ${e.message}`);
+        }
+      }
+
+      await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: 'file://' + playPath },
+        { shouldPlay: false },
+        (status) => {
+          if (status.isLoaded) {
+            setPlaybackStatus({
+              isPlaying: status.isPlaying,
+              positionMs: status.positionMillis || 0,
+              durationMs: status.durationMillis || 0,
+            });
+            if (status.didJustFinish) {
+              sound.setPositionAsync(0).catch(() => {});
+            }
+          }
+        }
+      );
+      playbackSoundRef.current = sound;
+    } catch (e) {
+      logEvent(`Playback load error: ${e.message}`);
+    }
+  };
+
+  const handlePlayPause = async () => {
+    if (!playbackSoundRef.current) return;
+    if (playbackStatus.isPlaying) {
+      await playbackSoundRef.current.pauseAsync();
+    } else {
+      await playbackSoundRef.current.playAsync();
+    }
+  };
+
+  const handleSeek = async (deltaMs) => {
+    if (!playbackSoundRef.current) return;
+    const newPos = Math.max(0, Math.min(playbackStatus.durationMs, playbackStatus.positionMs + deltaMs));
+    await playbackSoundRef.current.setPositionAsync(newPos);
+  };
+
+  const handleBackFromAnalytics = async () => {
+    if (playbackSoundRef.current) {
+      await playbackSoundRef.current.stopAsync().catch(() => {});
+      await playbackSoundRef.current.unloadAsync().catch(() => {});
+      playbackSoundRef.current = null;
+    }
+    setPlaybackStatus({ isPlaying: false, positionMs: 0, durationMs: 0 });
+    setActiveAnalyticsTab('stats');
+    setShowAnalytics(false);
   };
 
   const viewLogs = async () => {
@@ -674,7 +803,14 @@ export default function App() {
       NotificationBridge.scheduleDailyReminderAt(hours, minutes);
       logEvent(`Daily reminder scheduled natively — repeats every day at ${reminderTime}`);
     } else {
-      // Fallback: Expo scheduler (simulator / dev builds without native module)
+      // Fallback: Expo scheduler (simulator / dev builds without native module).
+      // Cancel any existing Expo daily-reminder before scheduling to avoid duplicates.
+      const existing = await Notifications.getAllScheduledNotificationsAsync();
+      for (const n of existing) {
+        if (n.content.data?.type === 'daily-reminder') {
+          await Notifications.cancelScheduledNotificationAsync(n.identifier);
+        }
+      }
       await Notifications.scheduleNotificationAsync({
         content: {
           title: 'SnoreAlert',
@@ -883,6 +1019,8 @@ export default function App() {
   // Analytics Screen
   if (showAnalytics) {
     const validSessionData = sessionData.filter(d => d.level > -100);
+
+    // ── Stats tab data ──────────────────────────────────────────────────────
     const maxPoints = 50;
     let chartData = validSessionData;
     if (validSessionData.length > maxPoints) {
@@ -890,28 +1028,19 @@ export default function App() {
       chartData = validSessionData.filter((_, index) => index % step === 0);
     }
 
-    // Generate labels - show start, end, and every 10th point (but skip if too close to end)
     const labels = chartData.map((d, i) => {
       const isFirst = i === 0;
       const isLast = i === chartData.length - 1;
       const isTenth = i % 10 === 0;
-      const tooCloseToEnd = i >= chartData.length - 5; // Within last 5 points
-
-      if (isFirst) {
-        // Always show first label (session start)
-        return new Date(d.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      } else if (isLast && sessionEndTime) {
-        // Always show last label (session end)
-        return sessionEndTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      } else if (isTenth && !tooCloseToEnd) {
-        // Show every 10th point, but skip if too close to the end to avoid overlap
-        return new Date(d.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      }
+      const tooCloseToEnd = i >= chartData.length - 5;
+      if (isFirst) return new Date(d.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      if (isLast && sessionEndTime) return sessionEndTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      if (isTenth && !tooCloseToEnd) return new Date(d.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       return "";
     });
 
     const data = {
-      labels: labels,
+      labels,
       datasets: [{ data: chartData.length > 0 ? chartData.map(d => d.level) : [0] }]
     };
 
@@ -920,6 +1049,168 @@ export default function App() {
     const avgLevel = validSessionData.length > 0
       ? (validSessionData.reduce((sum, d) => sum + d.level, 0) / validSessionData.length).toFixed(1)
       : 0;
+
+    // ── Waveform tab data ───────────────────────────────────────────────────
+    const MAX_BARS = 500;
+    const rawWaveformData = validSessionData.length <= MAX_BARS
+      ? validSessionData
+      : validSessionData.filter((_, i) => i % Math.ceil(validSessionData.length / MAX_BARS) === 0).slice(0, MAX_BARS);
+
+    // Zoom window — slice raw data to the visible fraction of the session
+    const visibleHalf  = 0.5 / waveZoom;
+    const visibleStart = Math.max(0, waveOffset - visibleHalf);
+    const visibleEnd   = Math.min(1, waveOffset + visibleHalf);
+    const _startIdx = Math.floor(visibleStart * rawWaveformData.length);
+    const _endIdx   = Math.max(_startIdx + 2, Math.ceil(visibleEnd * rawWaveformData.length));
+    const waveformData = rawWaveformData.slice(_startIdx, Math.min(_endIdx, rawWaveformData.length));
+
+    // Wallclock times for visible window edges
+    const _sessionDurationMs = sessionStartTime && sessionEndTime ? sessionEndTime - sessionStartTime : 0;
+    const visibleStartTime = sessionStartTime && _sessionDurationMs
+      ? new Date(sessionStartTime.getTime() + visibleStart * _sessionDurationMs) : sessionStartTime;
+    const visibleEndTime = sessionStartTime && _sessionDurationMs
+      ? new Date(sessionStartTime.getTime() + visibleEnd * _sessionDurationMs) : sessionEndTime;
+
+    // displayProgress: use scrubber drag value while dragging, else live position
+    const displayProgress = scrubProgress >= 0
+      ? scrubProgress
+      : (playbackStatus.durationMs > 0 ? playbackStatus.positionMs / playbackStatus.durationMs : 0);
+    const pct = Math.min(100, Math.max(0, Math.round(displayProgress * 100)));
+
+    // ── SVG line chart ──────────────────────────────────────────────────────
+    // Use 2nd–98th percentile for Y-axis bounds so a single startup spike
+    // (common at session start) doesn't compress the entire waveform.
+    const _wfLevels = waveformData.map(d => d.level).sort((a, b) => a - b);
+    const _p2  = _wfLevels[Math.max(0, Math.floor(_wfLevels.length * 0.02))] ?? -80;
+    const _p98 = _wfLevels[Math.min(_wfLevels.length - 1, Math.floor(_wfLevels.length * 0.98))] ?? -20;
+    const wfMin = waveformData.length > 0 ? _p2  : -80;
+    const wfMax = waveformData.length > 0 ? _p98 : -20;
+    const wfRange = Math.max(15, wfMax - wfMin);
+
+    const SVG_H = 110;
+    const SVG_W = Math.max(100, waveformWidth - 16);
+
+    // Add 20% headroom above and below the data range so the waveform
+    // doesn't press against the container edges
+    const wfPadding = wfRange * 0.20;
+    const displayMin = wfMin - wfPadding;
+    const displayRange = wfRange + wfPadding * 2;
+
+    const getYPos = (level) => {
+      const n = Math.max(0, Math.min(1, (level - displayMin) / displayRange));
+      return (SVG_H - 4) - n * (SVG_H - 8) + 2; // flip: loud = low y (top of container)
+    };
+
+    const linePoints = waveformData.map((d, i) => [
+      (i / Math.max(1, waveformData.length - 1)) * SVG_W,
+      getYPos(d.level),
+    ]);
+
+    const buildSvgPath = (pts) => {
+      if (pts.length < 2) return '';
+      if (pts.length > 200) {
+        // Straight lines for dense datasets — sub-pixel segments look smooth anyway
+        return pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join('');
+      }
+      // Catmull-Rom bezier for sparse datasets
+      const t = 0.4;
+      let d = `M${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`;
+      for (let i = 0; i < pts.length - 1; i++) {
+        const p0 = pts[Math.max(0, i - 1)];
+        const p1 = pts[i];
+        const p2 = pts[i + 1];
+        const p3 = pts[Math.min(pts.length - 1, i + 2)];
+        const cp1x = p1[0] + (p2[0] - p0[0]) * t;
+        const cp1y = p1[1] + (p2[1] - p0[1]) * t;
+        const cp2x = p2[0] - (p3[0] - p1[0]) * t;
+        const cp2y = p2[1] - (p3[1] - p1[1]) * t;
+        d += ` C${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
+      }
+      return d;
+    };
+
+    const svgLinePath = buildSvgPath(linePoints);
+    const x0 = linePoints.length > 0 ? linePoints[0][0].toFixed(1) : '0';
+    const xN = linePoints.length > 0 ? linePoints[linePoints.length - 1][0].toFixed(1) : String(SVG_W);
+    const svgFillPath = svgLinePath
+      ? `M${x0},${SVG_H} ${svgLinePath.replace('M', 'L')} L${xN},${SVG_H} Z`
+      : null;
+
+    // Threshold line in SVG coordinates
+    const thresholdLevel = SENSITIVITY_LEVELS[sensitivity];
+    const thresholdY = getYPos(Math.max(wfMin + 0.1, Math.min(wfMax - 0.1, thresholdLevel)));
+    const showThreshold = thresholdLevel > wfMin && thresholdLevel < wfMax;
+
+    // Playback cursor X — zoom-aware: map displayProgress into the visible window
+    const cursorInView = displayProgress >= visibleStart && displayProgress <= visibleEnd;
+    const cursorX = cursorInView
+      ? ((displayProgress - visibleStart) / (visibleEnd - visibleStart)) * SVG_W
+      : -1;
+
+    // Waveform pinch-to-zoom + pan gesture handlers
+    const onWaveformGrant = (e) => {
+      const touches = e.nativeEvent.touches;
+      if (touches?.length >= 2) {
+        const dx = touches[0].pageX - touches[1].pageX;
+        const dy = touches[0].pageY - touches[1].pageY;
+        waveGestureRef.current.pinchInitialDist = Math.sqrt(dx * dx + dy * dy);
+        waveGestureRef.current.pinchInitialZoom = waveZoom;
+        waveGestureRef.current.panLastX = null;
+      } else {
+        waveGestureRef.current.pinchInitialDist = null;
+        waveGestureRef.current.panLastX = touches?.[0]?.pageX ?? null;
+        const now = Date.now();
+        if (now - waveGestureRef.current.lastTapTime < 300) {
+          setWaveZoom(1.0);
+          setWaveOffset(0.5);
+        }
+        waveGestureRef.current.lastTapTime = now;
+      }
+    };
+    const onWaveformMove = (e) => {
+      const touches = e.nativeEvent.touches;
+      if (touches?.length >= 2 && waveGestureRef.current.pinchInitialDist) {
+        const dx = touches[0].pageX - touches[1].pageX;
+        const dy = touches[0].pageY - touches[1].pageY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const scale = dist / waveGestureRef.current.pinchInitialDist;
+        const newZoom = Math.max(1, Math.min(8, waveGestureRef.current.pinchInitialZoom * scale));
+        setWaveZoom(newZoom);
+        setWaveOffset(prev => {
+          const hw = 0.5 / newZoom;
+          return Math.max(hw, Math.min(1 - hw, prev));
+        });
+      } else if (touches?.length === 1 && waveZoom > 1 && waveGestureRef.current.panLastX !== null) {
+        const deltaFraction = -(touches[0].pageX - waveGestureRef.current.panLastX) / (waveformWidth || 300) / waveZoom;
+        waveGestureRef.current.panLastX = touches[0].pageX;
+        setWaveOffset(prev => {
+          const hw = 0.5 / waveZoom;
+          return Math.max(hw, Math.min(1 - hw, prev + deltaFraction));
+        });
+      }
+    };
+    const onWaveformRelease = () => {
+      waveGestureRef.current.pinchInitialDist = null;
+      waveGestureRef.current.panLastX = null;
+    };
+
+    const clamp01 = (v) => Math.max(0, Math.min(1, v));
+
+    const onScrubGrant = (e) => {
+      scrubberRef.current.isDragging = true;
+      setScrubProgress(clamp01(e.nativeEvent.locationX / (scrubberRef.current.width || 1)));
+    };
+    const onScrubMove = (e) => {
+      setScrubProgress(clamp01(e.nativeEvent.locationX / (scrubberRef.current.width || 1)));
+    };
+    const onScrubRelease = async (e) => {
+      const p = clamp01(e.nativeEvent.locationX / (scrubberRef.current.width || 1));
+      scrubberRef.current.isDragging = false;
+      setScrubProgress(-1);
+      if (playbackSoundRef.current && playbackStatus.durationMs > 0) {
+        await playbackSoundRef.current.setPositionAsync(p * playbackStatus.durationMs);
+      }
+    };
 
     return (
       <View style={styles.container}>
@@ -931,62 +1222,232 @@ export default function App() {
               <Text style={styles.analyticsDuration}>{formatDuration()}</Text>
             </View>
 
-            {/* Snore Score Card */}
-            <View style={styles.scoreCard}>
-              <Text style={styles.scoreLabel}>Snore Score</Text>
-              <View style={styles.scoreCircle}>
-                <Text style={styles.scoreValue}>{snoreScore}</Text>
-                <Text style={styles.scoreMax}>/100</Text>
-              </View>
-              <Text style={styles.scoreDescription}>
-                {snoreScore === 0 ? '😴 No snoring detected' :
-                 snoreScore < 10 ? '😴 Excellent sleep!' :
-                 snoreScore < 30 ? '😊 Light snoring' :
-                 snoreScore < 60 ? '😐 Moderate snoring' :
-                 '😮 Heavy snoring detected'}
-              </Text>
-            </View>
-
-            {/* Stats Grid */}
-            <View style={styles.statsGrid}>
-              <View style={styles.statCard}>
-                <Text style={styles.statIcon}>🔊</Text>
-                <Text style={styles.statValue}>{snoreEvents}</Text>
-                <Text style={styles.statLabel}>Snore Events</Text>
-              </View>
-              <View style={styles.statCard}>
-                <Text style={styles.statIcon}>📊</Text>
-                <Text style={styles.statValue}>{avgLevel} dB</Text>
-                <Text style={styles.statLabel}>Avg Level</Text>
-              </View>
-            </View>
-
-            {/* Chart Card */}
-            <View style={styles.chartCard}>
-              <Text style={styles.chartTitle}>Audio Levels</Text>
-              <LineChart
-                data={data}
-                width={Dimensions.get("window").width - 60}
-                height={220}
-                chartConfig={{
-                  backgroundColor: "#ffffff",
-                  backgroundGradientFrom: "#ffffff",
-                  backgroundGradientTo: "#ffffff",
-                  decimalPlaces: 1,
-                  color: (opacity = 1) => `rgba(30, 60, 114, ${opacity})`,
-                  labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
-                  propsForDots: {
-                    r: "3",
-                    strokeWidth: "2",
-                    stroke: "#1e3c72"
+            {/* Tab Bar */}
+            <View style={styles.analyticsTabBar}>
+              <TouchableOpacity
+                style={[styles.analyticsTab, activeAnalyticsTab === 'stats' && styles.analyticsTabActive]}
+                onPress={() => setActiveAnalyticsTab('stats')}
+              >
+                <Text style={[styles.analyticsTabText, activeAnalyticsTab === 'stats' && styles.analyticsTabTextActive]}>
+                  Stats
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.analyticsTab, activeAnalyticsTab === 'playback' && styles.analyticsTabActive]}
+                onPress={async () => {
+                  setActiveAnalyticsTab('playback');
+                  if (!playbackSoundRef.current && recordingPath) {
+                    await loadPlaybackAudio(recordingPath);
                   }
                 }}
-                bezier
-                style={styles.chart}
-              />
+              >
+                <Text style={[styles.analyticsTabText, activeAnalyticsTab === 'playback' && styles.analyticsTabTextActive]}>
+                  Playback
+                </Text>
+              </TouchableOpacity>
             </View>
 
-            <TouchableOpacity style={styles.backButton} onPress={() => setShowAnalytics(false)}>
+            {/* ── Stats Tab ── */}
+            {activeAnalyticsTab === 'stats' && (
+              <>
+                <View style={styles.scoreCard}>
+                  <Text style={styles.scoreLabel}>Snore Score</Text>
+                  <View style={styles.scoreCircle}>
+                    <Text style={styles.scoreValue}>{snoreScore}</Text>
+                    <Text style={styles.scoreMax}>/100</Text>
+                  </View>
+                  <Text style={styles.scoreDescription}>
+                    {snoreScore === 0 ? '😴 No snoring detected' :
+                     snoreScore < 10 ? '😴 Excellent sleep!' :
+                     snoreScore < 30 ? '😊 Light snoring' :
+                     snoreScore < 60 ? '😐 Moderate snoring' :
+                     '😮 Heavy snoring detected'}
+                  </Text>
+                </View>
+
+                <View style={styles.statsGrid}>
+                  <View style={styles.statCard}>
+                    <Text style={styles.statIcon}>🔊</Text>
+                    <Text style={styles.statValue}>{snoreEvents}</Text>
+                    <Text style={styles.statLabel}>Snore Events</Text>
+                  </View>
+                  <View style={styles.statCard}>
+                    <Text style={styles.statIcon}>📊</Text>
+                    <Text style={styles.statValue}>{avgLevel} dB</Text>
+                    <Text style={styles.statLabel}>Avg Level</Text>
+                  </View>
+                </View>
+
+                <View style={styles.chartCard}>
+                  <Text style={styles.chartTitle}>Audio Levels</Text>
+                  <LineChart
+                    data={data}
+                    width={Dimensions.get("window").width - 60}
+                    height={220}
+                    chartConfig={{
+                      backgroundColor: "#ffffff",
+                      backgroundGradientFrom: "#ffffff",
+                      backgroundGradientTo: "#ffffff",
+                      decimalPlaces: 1,
+                      color: (opacity = 1) => `rgba(30, 60, 114, ${opacity})`,
+                      labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
+                      propsForDots: { r: "3", strokeWidth: "2", stroke: "#1e3c72" }
+                    }}
+                    bezier
+                    style={styles.chart}
+                  />
+                </View>
+              </>
+            )}
+
+            {/* ── Playback Tab ── */}
+            {activeAnalyticsTab === 'playback' && (
+              <View style={styles.playbackCard}>
+                {recordingPath ? (
+                  <>
+                    {/* Waveform — SVG line plot, pinch to zoom, double-tap to reset */}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+                      <Text style={styles.playbackSectionLabel}>Night Waveform</Text>
+                      {waveZoom > 1 && (
+                        <TouchableOpacity onPress={() => { setWaveZoom(1); setWaveOffset(0.5); }}>
+                          <Text style={{ fontSize: 11, color: '#6b7280', paddingRight: 4 }}>Reset zoom</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                    <View
+                      style={styles.waveformContainer}
+                      onLayout={(e) => setWaveformWidth(e.nativeEvent.layout.width)}
+                      onStartShouldSetResponder={() => true}
+                      onMoveShouldSetResponder={() => true}
+                      onResponderGrant={onWaveformGrant}
+                      onResponderMove={onWaveformMove}
+                      onResponderRelease={onWaveformRelease}
+                      onResponderTerminate={onWaveformRelease}
+                    >
+                      {linePoints.length >= 2 ? (
+                        <Svg width={SVG_W} height={SVG_H}>
+                          <Defs>
+                            <LinearGradient id="waveGrad" x1="0" y1="0" x2="0" y2="1">
+                              <Stop offset="0%" stopColor="#10b981" stopOpacity="0.55" />
+                              <Stop offset="100%" stopColor="#10b981" stopOpacity="0.03" />
+                            </LinearGradient>
+                          </Defs>
+                          {svgFillPath && (
+                            <Path d={svgFillPath} fill="url(#waveGrad)" />
+                          )}
+                          {showThreshold && (
+                            <Line
+                              x1="0" y1={thresholdY.toFixed(1)}
+                              x2={SVG_W} y2={thresholdY.toFixed(1)}
+                              stroke="#ef4444"
+                              strokeWidth="1.5"
+                              strokeDasharray="5,4"
+                              strokeOpacity="0.75"
+                            />
+                          )}
+                          {svgLinePath && (
+                            <Path
+                              d={svgLinePath}
+                              fill="none"
+                              stroke="#10b981"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          )}
+                          {playbackStatus.durationMs > 0 && cursorX >= 0 && (
+                            <Line
+                              x1={cursorX.toFixed(1)} y1="0"
+                              x2={cursorX.toFixed(1)} y2={SVG_H}
+                              stroke="rgba(255,255,255,0.9)"
+                              strokeWidth="2"
+                            />
+                          )}
+                        </Svg>
+                      ) : (
+                        <Text style={{ color: '#9ca3af', fontSize: 13 }}>No session data</Text>
+                      )}
+                    </View>
+
+                    {/* Time axis labels — show visible window edges */}
+                    <View style={styles.waveformTimeRow}>
+                      <Text style={styles.waveformTimeLabel}>
+                        {visibleStartTime?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </Text>
+                      {waveZoom > 1 && (
+                        <Text style={{ fontSize: 10, color: '#6b7280' }}>{waveZoom.toFixed(1)}×</Text>
+                      )}
+                      <Text style={styles.waveformTimeLabel}>
+                        {visibleEndTime?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </Text>
+                    </View>
+
+                    {/* Scrubber */}
+                    <View
+                      style={styles.scrubberWrapper}
+                      onLayout={(e) => { scrubberRef.current.width = e.nativeEvent.layout.width; }}
+                      onStartShouldSetResponder={() => true}
+                      onMoveShouldSetResponder={() => true}
+                      onResponderGrant={onScrubGrant}
+                      onResponderMove={onScrubMove}
+                      onResponderRelease={onScrubRelease}
+                      onResponderTerminate={() => setScrubProgress(-1)}
+                    >
+                      <View style={styles.scrubberTrackBg} />
+                      <View style={[styles.scrubberFill, { width: `${pct}%` }]} />
+                      <View style={[styles.scrubberThumb, { left: `${pct}%` }]} />
+                    </View>
+
+                    {/* Position / duration */}
+                    <View style={styles.playbackTimeRow}>
+                      <Text style={styles.playbackTimeText}>
+                        {formatPlaybackTime(scrubProgress >= 0 ? scrubProgress * playbackStatus.durationMs : playbackStatus.positionMs)}
+                      </Text>
+                      <Text style={styles.playbackTimeText}>{formatPlaybackTime(playbackStatus.durationMs)}</Text>
+                    </View>
+
+                    {/* Controls — skip back / play-pause / skip forward */}
+                    <View style={styles.playbackControls}>
+                      <TouchableOpacity style={styles.skipButton} onPress={() => handleSeek(-5000)}>
+                        <Text style={styles.skipIcon}>↺</Text>
+                        <Text style={styles.skipLabel}>5s</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.playPauseButton} onPress={handlePlayPause}>
+                        <Text style={styles.playPauseIcon}>{playbackStatus.isPlaying ? '⏸' : '▶'}</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.skipButton} onPress={() => handleSeek(5000)}>
+                        <Text style={styles.skipIcon}>↻</Text>
+                        <Text style={styles.skipLabel}>5s</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Legend */}
+                    <View style={styles.waveformLegend}>
+                      <View style={styles.legendItem}>
+                        <View style={styles.legendLine} />
+                        <Text style={styles.legendText}>Audio Level</Text>
+                      </View>
+                      {showThreshold && (
+                        <View style={styles.legendItem}>
+                          <View style={styles.legendDashedLine} />
+                          <Text style={styles.legendText}>Snore Threshold</Text>
+                        </View>
+                      )}
+                    </View>
+                  </>
+                ) : (
+                  <View style={styles.noRecordingView}>
+                    <Text style={styles.noRecordingIcon}>🎙️</Text>
+                    <Text style={styles.noRecordingTitle}>No Recording Available</Text>
+                    <Text style={styles.noRecordingText}>
+                      Enable "Training Audio Capture" in Session Settings before your next session to record overnight audio for playback.
+                    </Text>
+                  </View>
+                )}
+              </View>
+            )}
+
+            <TouchableOpacity style={styles.backButton} onPress={handleBackFromAnalytics}>
               <Text style={styles.backButtonText}>← Back to Home</Text>
             </TouchableOpacity>
           </ScrollView>
@@ -1105,7 +1566,17 @@ export default function App() {
             bouncesZoom={true}
             pinchGestureEnabled={true}
             contentContainerStyle={{ paddingBottom: 40 }}
-            onContentSizeChange={() => logScrollViewRef.current?.scrollToEnd({ animated: false })}
+            onScroll={({ nativeEvent }) => {
+              const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+              logScrollAtBottomRef.current =
+                contentOffset.y + layoutMeasurement.height >= contentSize.height - 40;
+            }}
+            scrollEventThrottle={100}
+            onContentSizeChange={() => {
+              if (logScrollAtBottomRef.current) {
+                logScrollViewRef.current?.scrollToEnd({ animated: false });
+              }
+            }}
           >
             <Text style={{ color: '#ccc', fontSize: 11, fontFamily: 'Courier New', lineHeight: 18 }}>
               {logContent}
@@ -1162,9 +1633,9 @@ export default function App() {
                   ))}
                 </View>
                 <Text style={styles.sensitivityHint}>
-                  {sensitivity === 'High' ? 'Catches moderate snoring above white noise (-32 dB)' :
-                   sensitivity === 'Medium' ? 'Clearly audible snoring only (-22 dB)' :
-                   'Only loud snoring (-15 dB)'}
+                  {sensitivity === 'High' ? 'Catches quiet and moderate snoring (-45 dB threshold)' :
+                   sensitivity === 'Medium' ? 'Clearly audible snoring only (-35 dB threshold)' :
+                   'Only very loud snoring (-25 dB threshold)'}
                 </Text>
               </View>
             )}
@@ -1691,6 +2162,204 @@ const styles = StyleSheet.create({
     color: '#6b7280',
     marginTop: 12,
     fontStyle: 'italic',
+  },
+
+  // ─── Analytics Tab Bar ────────────────────────────────────────────────────
+  analyticsTabBar: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 14,
+    padding: 4,
+    marginBottom: 20,
+  },
+  analyticsTab: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: 10,
+  },
+  analyticsTabActive: {
+    backgroundColor: '#ffffff',
+  },
+  analyticsTabText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.7)',
+  },
+  analyticsTabTextActive: {
+    color: '#1e3c72',
+  },
+
+  // ─── Playback Tab ─────────────────────────────────────────────────────────
+  playbackCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 24,
+    padding: 20,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 5,
+  },
+  playbackSectionLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 12,
+  },
+  waveformContainer: {
+    height: 120,
+    backgroundColor: '#0f1f3a',
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    marginBottom: 4,
+    overflow: 'hidden',
+  },
+  waveformTimeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+    paddingHorizontal: 4,
+  },
+  waveformTimeLabel: {
+    fontSize: 11,
+    color: '#6b7280',
+    fontWeight: '500',
+  },
+  // Scrubber
+  scrubberWrapper: {
+    height: 44,
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  scrubberTrackBg: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 4,
+    backgroundColor: '#e5e7eb',
+    borderRadius: 2,
+  },
+  scrubberFill: {
+    position: 'absolute',
+    left: 0,
+    height: 4,
+    backgroundColor: '#1e3c72',
+    borderRadius: 2,
+  },
+  scrubberThumb: {
+    position: 'absolute',
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#1e3c72',
+    top: '50%',
+    marginTop: -11,
+    marginLeft: -11,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  playbackTimeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+    paddingHorizontal: 2,
+  },
+  playbackTimeText: {
+    fontSize: 13,
+    color: '#6b7280',
+  },
+  playbackControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 28,
+    marginBottom: 20,
+  },
+  skipButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 44,
+  },
+  skipIcon: {
+    fontSize: 22,
+    color: '#1e3c72',
+  },
+  skipLabel: {
+    fontSize: 10,
+    color: '#6b7280',
+    marginTop: -2,
+  },
+  playPauseButton: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#1e3c72',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#1e3c72',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  playPauseIcon: {
+    fontSize: 24,
+    color: '#ffffff',
+  },
+  waveformLegend: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 20,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  legendLine: {
+    width: 20,
+    height: 2,
+    backgroundColor: '#10b981',
+    borderRadius: 1,
+  },
+  legendDashedLine: {
+    width: 20,
+    height: 2,
+    backgroundColor: '#ef4444',
+    borderRadius: 1,
+    opacity: 0.8,
+  },
+  legendText: {
+    fontSize: 12,
+    color: '#6b7280',
+  },
+  noRecordingView: {
+    alignItems: 'center',
+    paddingVertical: 32,
+    paddingHorizontal: 16,
+  },
+  noRecordingIcon: {
+    fontSize: 48,
+    marginBottom: 12,
+  },
+  noRecordingTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 8,
+  },
+  noRecordingText: {
+    fontSize: 14,
+    color: '#6b7280',
+    textAlign: 'center',
+    lineHeight: 20,
   },
 
   // ─── Paywall Styles ───────────────────────────────────────────────────────

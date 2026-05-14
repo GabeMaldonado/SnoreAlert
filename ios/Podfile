@@ -62,5 +62,15 @@ target 'SnoreGuard' do
         end
       end
     end
+
+    # Xcode 26 Clang is stricter about consteval — disable it in the fmt pod
+    # so FMT_COMPILE_STRING format-string validation compiles cleanly.
+    installer.pods_project.targets.each do |target|
+      if target.name == 'fmt'
+        target.build_configurations.each do |config|
+          config.build_settings['OTHER_CPLUSPLUSFLAGS'] = '$(inherited) -DFMT_CONSTEVAL='
+        end
+      end
+    end
   end
 end
