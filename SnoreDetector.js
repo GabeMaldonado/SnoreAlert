@@ -116,10 +116,12 @@ export class SnoreDetector {
                 this.onLevelUpdate(currentLevel);
             }
 
-            // ML path: trust the classifier directly (power gate + confidence + consecutive
-            // windows are enforced natively). dB gate only applies to the fallback path.
+            // ML path: require audio above a sensitivity-scaled floor so High/Medium/Low
+            // settings actually affect ML firing (gate is SNORE_THRESHOLD - 15 dB, giving
+            // High=-60, Medium=-50, Low=-40 — softer than the dB path but not ungated).
+            const mlPowerGate = this.SNORE_THRESHOLD - 15;
             const isSnoreEvent = mlActive
-                ? mlConfidence !== undefined
+                ? mlConfidence !== undefined && currentLevel > mlPowerGate
                 : currentLevel > this.SNORE_THRESHOLD;
 
             if (isSnoreEvent) {
