@@ -409,6 +409,13 @@ export default function App() {
       if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
         logEvent('App came to foreground, syncing data...');
         syncDataFromNative();
+        // Re-assert audio session and restart engine if it stopped while we
+        // were in another app (Safari audio, Clock alarm preview, etc.)
+        if (isMonitoringRef.current && NativeModules.NativeAudioRecorder?.reactivateSession) {
+          NativeModules.NativeAudioRecorder.reactivateSession()
+            .then(r => { if (r?.rebuilt) logEvent('Audio engine rebuilt on foreground'); })
+            .catch(() => {});
+        }
       }
       appState.current = nextAppState;
     };

@@ -134,6 +134,37 @@ class NativeAudioRecorder: RCTEventEmitter {
     ])
   }
 
+  // Called by JS whenever the app returns to foreground during an active session.
+  // Re-asserts the audio session category and restarts the engine if it stopped.
+  @objc
+  func reactivateSession(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+    guard isSessionActive else {
+      resolve(["active": false])
+      return
+    }
+
+    do {
+      let session = AVAudioSession.sharedInstance()
+      try session.setCategory(.record, mode: .default, options: [.allowBluetooth])
+      try session.setActive(true)
+
+      if let engine = audioEngine, !engine.isRunning {
+        logger.info("🎤 reactivateSession: engine was stopped — rebuilding")
+        rebuildAndRestartEngine()
+      } else if audioEngine == nil {
+        logger.info("🎤 reactivateSession: engine was nil — rebuilding")
+        rebuildAndRestartEngine()
+      } else {
+        logger.info("🎤 reactivateSession: engine running, category reasserted ✓")
+      }
+      resolve(["active": true])
+    } catch {
+      logger.error("🎤 reactivateSession failed: \(error.localizedDescription) — rebuilding")
+      rebuildAndRestartEngine()
+      resolve(["active": true, "rebuilt": true])
+    }
+  }
+
   @objc
   func setTrainingRecordingEnabled(_ enabled: Bool, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
     isTrainingRecordingEnabled = enabled
@@ -256,18 +287,14 @@ class NativeAudioRecorder: RCTEventEmitter {
       // Engine is already stopped by the system; nothing to do but log.
 
     case .ended:
+      // Always do a full rebuild on interruption end — re-establishes ML analysis
+      // with the correct audio format in case the hardware config changed.
       let optionsValue = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
       let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
-      if options.contains(.shouldResume) {
-        logger.info("🎤 Interruption ended with shouldResume — restarting engine")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-          self.restartAudioEngine(reason: "interruption-ended")
-        }
-      } else {
-        logger.info("🎤 Interruption ended without shouldResume — restarting anyway")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-          self.restartAudioEngine(reason: "interruption-ended-no-resume")
-        }
+      let delay: Double = options.contains(.shouldResume) ? 0.25 : 0.5
+      logger.info("🎤 Interruption ended (shouldResume=\(options.contains(.shouldResume))) — rebuilding engine")
+      DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+        self.rebuildAndRestartEngine()
       }
 
     @unknown default:
@@ -331,7 +358,11 @@ class NativeAudioRecorder: RCTEventEmitter {
     }
 
     do {
-      try AVAudioSession.sharedInstance().setActive(true)
+      // Re-assert category so another app's audio session change doesn't leave
+      // us in the wrong mode (e.g. .playback after Safari plays video).
+      let session = AVAudioSession.sharedInstance()
+      try session.setCategory(.record, mode: .default, options: [.allowBluetooth])
+      try session.setActive(true)
       try engine.start()
       logger.info("🎤 ✅ Engine restarted (\(reason))")
       sendEvent(withName: "NativeAudioLevel", body: [
