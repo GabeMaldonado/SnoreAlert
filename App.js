@@ -128,6 +128,7 @@ export default function App() {
   const [sensitivity, setSensitivity] = useState('Medium');
   const [snoreEventCount, setSnoreEventCount] = useState(0);
   const snoreDetectorRef = useRef(null);
+  const periodicFlushRef = useRef(null);
   const isMonitoringRef = useRef(false);
   const sensitivityRef = useRef('Medium');
   const lastDataPointTimeRef = useRef(0);
@@ -516,6 +517,11 @@ export default function App() {
         await snoreDetectorRef.current.startMonitoring();
         isMonitoringRef.current = true;
         setIsMonitoring(true);
+
+        // Flush logs to disk every 30 min so overnight iOS kills don't wipe the session
+        periodicFlushRef.current = setInterval(() => {
+          flushSessionLog(startTime);
+        }, 30 * 60 * 1000);
     } catch (error) {
         logEvent(`Error in startMonitoring: ${error.message}`);
         if (keepAwakeEnabled) {
@@ -531,6 +537,10 @@ export default function App() {
 
   const stopMonitoring = async () => {
     if (!snoreDetectorRef.current) return;
+    if (periodicFlushRef.current) {
+      clearInterval(periodicFlushRef.current);
+      periodicFlushRef.current = null;
+    }
     try {
         await snoreDetectorRef.current.stopMonitoring();
         let finalData = sessionData;

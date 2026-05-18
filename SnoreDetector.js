@@ -116,10 +116,10 @@ export class SnoreDetector {
                 this.onLevelUpdate(currentLevel);
             }
 
-            // ML events must also pass the dB gate so ambient noise at the
-            // right frequency can't trigger alerts — belt-and-suspenders.
+            // ML path: trust the classifier directly (power gate + confidence + consecutive
+            // windows are enforced natively). dB gate only applies to the fallback path.
             const isSnoreEvent = mlActive
-                ? mlConfidence !== undefined && currentLevel > this.SNORE_THRESHOLD
+                ? mlConfidence !== undefined
                 : currentLevel > this.SNORE_THRESHOLD;
 
             if (isSnoreEvent) {
