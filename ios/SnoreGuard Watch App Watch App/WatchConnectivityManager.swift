@@ -66,6 +66,14 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
         self.activationStateText = "Activated (\(activationState.rawValue))"
         self.isSessionActivated = (activationState == .activated)
         self.isReachable = session.isReachable
+
+        // Pick up monitoring state the iPhone sent before this app was running.
+        // WCSession only fires didReceiveApplicationContext for NEW context after
+        // activation; the stored context must be read manually here.
+        let ctx = session.receivedApplicationContext
+        if !ctx.isEmpty {
+          self.handle(payload: ctx)
+        }
       }
 
       self.completePendingBackgroundTasksIfPossible()

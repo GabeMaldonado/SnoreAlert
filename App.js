@@ -102,7 +102,13 @@ const calculateSnoreScore = (sessionData, threshold, mlEventCount = 0) => {
   if (!sessionData || sessionData.length === 0) return 0;
 
   const dbSnoreEvents = sessionData.filter(d => d.level > threshold);
-  const effectiveEventCount = Math.max(dbSnoreEvents.length, mlEventCount);
+
+  // Each ML event represents ~2s of sustained snoring (4 × 0.5s windows).
+  // Convert to data-point scale (1 pt ≈ 1s) then cap at session length so a
+  // continuously-misfiring model can't push the score above what the dB path
+  // would give for 100% snoring.
+  const mlAsDataPoints = Math.min(mlEventCount * 2, sessionData.length);
+  const effectiveEventCount = Math.max(dbSnoreEvents.length, mlAsDataPoints);
   if (effectiveEventCount === 0) return 0;
 
   const snorePercentage = (effectiveEventCount / sessionData.length) * 100;
@@ -325,15 +331,15 @@ export default function App() {
           const canNotify = now - lastNotificationTimeRef.current >= NOTIFICATION_COOLDOWN_MS;
           logEvent(`Time since last notification: ${timeSinceLastNotif}ms (cooldown: ${NOTIFICATION_COOLDOWN_MS}ms)`);
 
-          // Count every sustained ML detection even when notifications are throttled,
-          // so analytics reflect actual detected events instead of alert frequency.
+          if (canNotify) {
+          // Only count events that pass the notification cooldown so snoreCount stays
+          // bounded by session_time / cooldown — prevents score inflation from a
+          // misfiring model incrementing every 2s.
           snoreCountRef.current += 1;
           const times = mlDetectionTimesRef.current;
           times.push(now);
-          if (times.length > 500) times.shift(); // keep last 500 for stop-time reporting
+          if (times.length > 500) times.shift();
           setSnoreEventCount(snoreCountRef.current);
-
-          if (canNotify) {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
 
             if (WatchConnectivityBridge?.sendVibrateCommand) {
@@ -375,9 +381,7 @@ export default function App() {
                 console.error('Expo notification error:', error);
               }
             }
-          } else {
-            logEvent('Notification suppressed by cooldown; ML event still counted');
-          }
+          } // end canNotify
         },
         (level) => {
           setCurrentAudioLevel(level);
