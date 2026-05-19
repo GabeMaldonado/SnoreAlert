@@ -332,14 +332,14 @@ export default function App() {
           logEvent(`Time since last notification: ${timeSinceLastNotif}ms (cooldown: ${NOTIFICATION_COOLDOWN_MS}ms)`);
 
           if (canNotify) {
-          // Only count events that pass the notification cooldown so snoreCount stays
-          // bounded by session_time / cooldown — prevents score inflation from a
-          // misfiring model incrementing every 2s.
-          snoreCountRef.current += 1;
-          const times = mlDetectionTimesRef.current;
-          times.push(now);
-          if (times.length > 500) times.shift();
-          setSnoreEventCount(snoreCountRef.current);
+            // Only count events that pass the notification cooldown so snoreCount stays
+            // bounded by session_time / cooldown — prevents score inflation from a
+            // misfiring model incrementing every 2s.
+            snoreCountRef.current += 1;
+            const times = mlDetectionTimesRef.current;
+            times.push(now);
+            if (times.length > 500) times.shift();
+            setSnoreEventCount(snoreCountRef.current);
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
 
             if (WatchConnectivityBridge?.sendVibrateCommand) {

@@ -34,8 +34,10 @@ class NativeAudioRecorder: RCTEventEmitter {
   private let analysisQueue = DispatchQueue(label: "com.snoreguard.analysis", qos: .background)
   private var useMLDetection = false
   private let snoreConfidenceThreshold: Float = 0.92
-  // Skip ML inference for near-silence. Overnight audio from a nightstand ~-60 dBFS.
-  private let mlMinimumPowerThreshold: Float = -58.0
+  // Skip ML inference below -48 dBFS — speech at nightstand range is -30 to -43,
+  // real snoring peaks -15 to -35. This gate won't eliminate speech false positives
+  // (spectral fix requires model retraining) but cuts inference on truly quiet audio.
+  private let mlMinimumPowerThreshold: Float = -48.0
   // Monotonically increasing frame counter for SNAudioStreamAnalyzer.
   // Only written/read on the AVAudioEngine render thread — no lock needed.
   private var currentFramePosition: AVAudioFramePosition = 0
@@ -665,8 +667,9 @@ class SnoreAnalysisObserver: NSObject, SNResultsObserving {
   private let logger = Logger(subsystem: "com.agenticdevlabs.snoreguard", category: "SnoreAnalysisObserver")
 
   // Require N consecutive snore windows before firing.
-  // At overlapFactor=0.5 with 1s windows, each window is 0.5s apart → 5 = ~2.5s sustained.
-  private let requiredConsecutiveCount: Int = 5
+  // At overlapFactor=0.5 with 1s windows, each window is 0.5s apart → 8 = ~4s sustained.
+  // Speech pauses more often than 4s; rhythmic snoring sustains longer.
+  private let requiredConsecutiveCount: Int = 8
   // Allow this many non-snore windows within a run before resetting — handles the
   // brief confidence dip during the inhale/pause cycle of a real snore.
   private let allowedGapCount: Int = 1
